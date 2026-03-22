@@ -2,32 +2,35 @@ import sys
 import os
 from pathlib import Path
 
-# --- 1. DYNAMIC PATH INJECTION (CRITICAL FIX) ---
-# This identifies '/mount/src/health_care' and adds it to the system path
-# so that the statement 'from src.xxx' actually works.
+# --- THE FIX: DYNAMIC PATH INJECTION ---
+# This identifies the folder '/mount/src/health_care'
+# and tells the Python interpreter: "Look here for the 'src' folder"
 current_dir = Path(__file__).resolve().parent
 root_path = current_dir.parent
 if str(root_path) not in sys.path:
     sys.path.insert(0, str(root_path))
 
-# --- 2. IMPORTS ---
+# --- NOW DO THE IMPORTS ---
 import streamlit as st
 import pandas as pd
 import joblib
 
-# These will no longer throw an ImportError now that the path is fixed
-from src.data_processor import load_and_merge_data
-from src.model import train_model
-
-# --- 3. PAGE CONFIG ---
-st.set_page_config(page_title="Health Equity Dashboard", layout="wide", page_icon="🏥")
-
-# --- 4. APP LOGIC ---
+# These will now work because we manually added the root to the system path
 try:
-    # Load and Clean Data
+    from src.data_processor import load_and_merge_data
+    from src.model import train_model
+except ImportError as e:
+    st.error(f"Import Error: {e}")
+    st.info(f"System Path: {sys.path}") # This helps debug if it fails again
+
+# --- APP LOGIC ---
+st.set_page_config(page_title="Health Equity Dashboard", layout="wide")
+
+try:
+    # 1. Load Data
     df, report = load_and_merge_data()
 
-    # Check for Model and Train if missing
+    # 2. Handle Model Training
     model_path = root_path / "models" / "cost_predictor.pkl"
     if not model_path.exists():
         with st.spinner("Training Predictive Engine..."):
@@ -36,13 +39,12 @@ try:
     model = joblib.load(model_path)
 
     st.title("🏥 Health Equity Insights Dashboard")
-    st.success("System Online: Data and Predictive Model Loaded.")
+    st.success("System Online: Analytics and Model Loaded.")
     
-    # Display the report focusing on City and Income
-    st.subheader("Vertical Equity Analysis")
+    # 3. Display Results
+    st.subheader("Vertical Equity Analysis (Income vs. City)")
     st.dataframe(report)
 
 except Exception as e:
-    st.error("Deployment Configuration Error")
+    st.error("Dashboard Initialization Error")
     st.exception(e)
-    st.info("Check that 'src', 'data', and 'models' folders exist in your GitHub root.")
