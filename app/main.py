@@ -48,7 +48,7 @@ def load_and_merge_data():
     
     patients['INCOME_TIER'] = patients['INCOME'].apply(get_tier)
 
-    # Merge Data
+    # Merge Data - Using 'Id' from patients and 'PATIENT' from encounters
     merged_data = pd.merge(encounters, patients, left_on='PATIENT', right_on='Id')
     return merged_data
 
@@ -85,7 +85,7 @@ try:
     selected_city = st.sidebar.selectbox("Select City", options=sorted(data['CITY'].unique()))
     income_filter = st.sidebar.multiselect(
         "Income Tiers", 
-        options=data['INCOME_TIER'].unique(),
+        options=sorted(data['INCOME_TIER'].unique()),
         default=data['INCOME_TIER'].unique()
     )
 
@@ -98,17 +98,13 @@ try:
 
     with col1:
         st.subheader("📊 Cost Burden by Income Tier")
-        # Aggregate data for the bar chart
         chart_data = filtered_data.groupby('INCOME_TIER')['TOTAL_CLAIM_COST'].mean().reset_index()
         st.bar_chart(chart_data, x="INCOME_TIER", y="TOTAL_CLAIM_COST", color="#ff4b4b")
-        st.caption("Average Total Claim Cost per Encounter by Income Level")
 
     with col2:
         st.subheader(f"📍 Common Conditions in {selected_city}")
-        # Top 5 disease clusters
         disease_counts = city_data['DESCRIPTION'].value_counts().head(5)
         st.bar_chart(disease_counts, color="#1f77b4")
-        st.caption(f"Top 5 reported clinical conditions in {selected_city}")
 
     # --- PREDICTIVE SECTION ---
     st.divider()
@@ -122,10 +118,12 @@ try:
         prediction = model.predict([[in_age, in_income, in_cov]])[0]
         st.success(f"Estimated Annual Healthcare Burden: **${prediction:,.2f}**")
 
-    # --- DATA PREVIEW ---
+    # --- DATA PREVIEW (SAFE VERSION) ---
     with st.expander("🔍 View Filtered Patient Records"):
-        st.dataframe(filtered_data[['Id', 'CITY', 'INCOME', 'TOTAL_CLAIM_COST', 'DESCRIPTION']].head(100))
+        # We only display columns that are guaranteed to exist
+        available_cols = [c for c in ['CITY', 'INCOME_TIER', 'TOTAL_CLAIM_COST', 'DESCRIPTION'] if c in filtered_data.columns]
+        st.dataframe(filtered_data[available_cols].head(100), use_container_width=True)
 
 except Exception as e:
-    st.error("🚨 System Error: Unable to load dashboard components.")
+    st.error("🚨 Dashboard Error")
     st.exception(e)
