@@ -3,25 +3,36 @@ from sklearn.ensemble import RandomForestRegressor
 import joblib
 import os
 
-# 1. Load your merged data
-# (Make sure patients.csv and encounters_part_1.csv are in your data folder)
-data = pd.read_csv('data/patients.csv') # Simplified for example
-
 def train_model(df):
+    # Select your core features
     features = ['AGE', 'INCOME', 'HEALTHCARE_COVERAGE']
     target = 'TOTAL_CLAIM_COST'
 
-    # --- THE FIX: Remove or Fill Missing Values ---
-    X = df[features].fillna(0)  # Replaces empty cells with 0
-    y = df[target].fillna(0)    # Replaces empty targets with 0
+    # --- THE CRITICAL FIX: Clean and Force Numeric ---
+    for col in features + [target]:
+        if col in df.columns:
+            # 1. Convert to string
+            # 2. Remove $ and ,
+            # 3. Convert to numeric (errors='coerce' turns text like 'Unknown' into NaN)
+            # 4. fillna(0) finally fills those NaNs
+            df[col] = pd.to_numeric(
+                df[col].astype(str).str.replace(r'[\$,]', '', regex=True), 
+                errors='coerce'
+            ).fillna(0)
 
-  
-# 3. Train the Model
-model = RandomForestRegressor(n_estimators=100, random_state=42)
-model.fit(X, y)
+    # Prepare X and y
+    X = df[features]
+    y = df[target]
 
-# 4. Save the Model to the pkl file
-os.makedirs('models', exist_ok=True)
-joblib.dump(model, 'models/cost_predictor.pkl')
+    # Initialize and Train
+    model = RandomForestRegressor(n_estimators=100, random_state=42)
+    model.fit(X, y)
 
-print("Success: cost_predictor.pkl has been created in the /models folder!")
+    # Save
+    os.makedirs('models', exist_ok=True)
+    joblib.dump(model, 'models/cost_predictor.pkl')
+    print("Success: cost_predictor.pkl has been created in the /models folder!")
+
+# To run it correctly:
+# data = pd.read_csv('data/patients.csv')
+# train_model(data)
