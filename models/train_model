@@ -1,1 +1,41 @@
+from sklearn.ensemble import RandomForestRegressor
+import joblib
+from pathlib import Path
+import pandas as pd
+import numpy as np
 
+def train_model(df):
+    # ✅ Keep only required columns
+    df = df[['AGE', 'INCOME', 'HEALTHCARE_COVERAGE', 'HEALTHCARE_EXPENSES']].copy()
+
+    # ✅ Convert everything to numeric
+    for col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+
+    # ✅ Remove invalid values
+    df = df.replace([np.inf, -np.inf], np.nan)
+    df = df.dropna()
+
+    # 🚨 CRITICAL CHECK
+    if df.shape[0] < 10:
+        raise ValueError(f"Not enough clean data to train model. Rows left: {df.shape[0]}")
+
+    # ✅ Features & target
+    X = df[['AGE', 'INCOME', 'HEALTHCARE_COVERAGE']]
+    y = df['HEALTHCARE_EXPENSES']
+
+    # 🚨 FINAL SAFETY CHECK
+    if X.isnull().values.any() or y.isnull().values.any():
+        raise ValueError("Still contains NaN values after cleaning")
+
+    model = RandomForestRegressor(n_estimators=50, random_state=42)
+    model.fit(X, y)
+
+    # Save model
+    root = Path(__file__).parents[1]
+    model_path = root / "models" / "model.pkl"
+    model_path.parent.mkdir(exist_ok=True)
+
+    joblib.dump(model, model_path)
+
+    print("✅ Model trained successfully!")
