@@ -19,6 +19,11 @@ def load_data():
     df['HEALTHCARE_EXPENSES'] = df['HEALTHCARE_EXPENSES'].fillna(0)
     df['HEALTHCARE_COVERAGE'] = df['HEALTHCARE_COVERAGE'].fillna(0)
 
+    df['AGE'] = pd.to_numeric(df['AGE'], errors='coerce')
+df['INCOME'] = pd.to_numeric(df['INCOME'], errors='coerce')
+df['HEALTHCARE_EXPENSES'] = pd.to_numeric(df['HEALTHCARE_EXPENSES'], errors='coerce')
+df['HEALTHCARE_COVERAGE'] = pd.to_numeric(df['HEALTHCARE_COVERAGE'], errors='coerce')
+
     # Aggregation
     report = df.groupby(['CITY', 'STATE', 'COUNTY']).agg({
         'HEALTHCARE_EXPENSES': 'mean',
