@@ -1,34 +1,39 @@
 import pandas as pd
+import glob
 from pathlib import Path
 
-def load_data():
-    root = Path(__file__).parents[1]
-    data_path = root / "data" / "patients.csv"
+def load_and_merge_data():
+    root_path = Path(__file__).parents[1]
+    data_dir = root_path / "data"
 
-    if not data_path.exists():
-        raise FileNotFoundError(f"Missing file: {data_path}")
+    # Load Patients
+    patients = pd.read_csv(data_dir / "patients.csv")
 
-    df = pd.read_csv(data_path)
+    # Load Encounters
+    search_pattern = str(data_dir / "encounters_part_*.csv")
+    encounter_files = glob.glob(search_pattern)
+    encounters = pd.concat((pd.read_csv(f) for f in encounter_files), ignore_index=True)
 
-    # Create AGE
-    df['BIRTHDATE'] = pd.to_datetime(df['BIRTHDATE'], errors='coerce')
-    df['AGE'] = (pd.Timestamp.today() - df['BIRTHDATE']).dt.days // 365
+    # Clean Financials
+    for col in ['INCOME', 'HEALTHCARE_EXPENSES', 'HEALTHCARE_COVERAGE']:
+        if col in patients.columns:
+            patients[col] = pd.to_numeric(
+                patients[col].astype(str).str.replace(r'[\$,]', '', regex=True), 
+                errors='coerce'
+            ).fillna(0)
 
-    # Fill missing values
-    df['INCOME'] = df['INCOME'].fillna(0)
-    df['HEALTHCARE_EXPENSES'] = df['HEALTHCARE_EXPENSES'].fillna(0)
-    df['HEALTHCARE_COVERAGE'] = df['HEALTHCARE_COVERAGE'].fillna(0)
+    # Create Tiers
+    patients['INCOME_TIER'] = patients['INCOME'].apply(
+        lambda x: 'Low Income' if x < 35000 else ('Middle Income' if x < 85000 else 'High Income')
+    )
 
-    df['AGE'] = pd.to_numeric(df['AGE'], errors='coerce')
-df['INCOME'] = pd.to_numeric(df['INCOME'], errors='coerce')
-df['HEALTHCARE_EXPENSES'] = pd.to_numeric(df['HEALTHCARE_EXPENSES'], errors='coerce')
-df['HEALTHCARE_COVERAGE'] = pd.to_numeric(df['HEALTHCARE_COVERAGE'], errors='coerce')
-
-    # Aggregation
-    report = df.groupby(['CITY', 'STATE', 'COUNTY']).agg({
-        'HEALTHCARE_EXPENSES': 'mean',
-        'HEALTHCARE_COVERAGE': 'mean',
-        'INCOME': 'mean'
+    # Merge
+    merged_data = pd.merge(encounters, patients, left_on='PATIENT', right_on='Id')
+    
+    # Aggregated Report
+    report = merged_data.groupby(['CITY', 'INCOME_TIER']).agg({
+        'TOTAL_CLAIM_COST': 'mean',
+        'HEALTHCARE_EXPENSES': 'mean'
     }).reset_index()
 
-    return df, report
+    return merged_data, report
