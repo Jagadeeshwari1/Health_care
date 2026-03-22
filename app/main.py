@@ -45,3 +45,4 @@ with col2:
         if model:
             pred = model.predict([[age, income, coverage]])[0]
             st.success(f"Estimated Cost: ${pred:,.2f}")
+           
