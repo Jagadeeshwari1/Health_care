@@ -37,9 +37,11 @@ def get_all_data():
     return df
 
 def get_interpretation(data, metric, group_col):
-    if data.empty: return "No data available."
+    if data.empty: return "No data available for selected filters."
     stats = data.groupby(group_col)[metric].mean().sort_values(ascending=False)
-    return f"💡 **Observation:** The **{stats.index[0]}** group currently shows the highest {metric.replace('_', ' ').lower()} (Avg: **${stats.iloc[0]:,.2f}**)."
+    top_group = stats.index[0]
+    top_val = stats.iloc[0]
+    return f"💡 **Observation:** The **{top_group}** group is currently seeing the highest average cost of **${top_val:,.2f}**, indicating a key priority for equity intervention."
 
 # --- 3. PAGE FUNCTIONS ---
 
@@ -84,7 +86,6 @@ def show_income_page(data):
 def show_age_page(data):
     st.title("📅 Age Analysis")
     st.sidebar.subheader("Age Controls")
-    # Added Sidebar for Age Page
     age_range = st.sidebar.slider("Filter Age Range", 0, 100, (0, 100))
     filtered = data[(data['AGE'] >= age_range[0]) & (data['AGE'] <= age_range[1])]
     
@@ -109,25 +110,27 @@ def show_health_conditions(data):
         color=alt.Color('DESCRIPTION', scale=alt.Scale(scheme='tableau20'), legend=None)
     ).properties(height=500)
     st.altair_chart(chart, use_container_width=True)
+    # ADDED INTERPRETATION
+    st.info(get_interpretation(filtered, 'TOTAL_CLAIM_COST', 'DESCRIPTION'))
 
 def show_geography_page(data):
     st.title("🌍 Geography Analysis")
     st.sidebar.subheader("County Filters")
-    # Multi-select for Counties in Sidebar
     all_counties = sorted(data['COUNTY'].unique())
-    selected_counties = st.sidebar.multiselect("Select Counties", all_counties, default=all_counties[:5])
+    selected_counties = st.sidebar.multiselect("Select Counties", all_counties, default=all_counties[:10])
     
     filtered = data[data['COUNTY'].isin(selected_counties)]
     
-    st.subheader("Regional Cost Comparison (By County)")
-    # Using Horizontal Bar Chart instead of Map/Pie
-    county_stats = filtered.groupby('COUNTY')['TOTAL_CLAIM_COST'].mean().sort_values(ascending=False).reset_index()
+    st.subheader("Top 10 High-Cost Counties")
+    county_stats = filtered.groupby('COUNTY')['TOTAL_CLAIM_COST'].mean().sort_values(ascending=False).head(10).reset_index()
+    
     chart = alt.Chart(county_stats).mark_bar(color='#4B0082').encode(
         x=alt.X('TOTAL_CLAIM_COST', title="Average Claim Cost ($)"),
         y=alt.Y('COUNTY', sort='-x', title="County Name")
     ).properties(height=500)
     st.altair_chart(chart, use_container_width=True)
-    st.info(get_interpretation(filtered, 'TOTAL_CLAIM_COST', 'COUNTY'))
+    # ADDED INTERPRETATION
+    st.info(get_interpretation(county_stats, 'TOTAL_CLAIM_COST', 'COUNTY'))
 
 def show_insurance_page(data):
     st.title("🛡️ Insurance Coverage")
@@ -136,9 +139,13 @@ def show_insurance_page(data):
     filtered = data[data['INSURANCE_STATUS'].isin(status_filter)]
     
     chart = alt.Chart(filtered).mark_bar().encode(
-        x='INSURANCE_STATUS', y='mean(HEALTHCARE_EXPENSES)', color='INSURANCE_STATUS'
+        x='INSURANCE_STATUS', 
+        y=alt.Y('mean(HEALTHCARE_EXPENSES)', title="Average Expenses ($)"),
+        color=alt.Color('INSURANCE_STATUS', scale=alt.Scale(scheme='set2'))
     ).properties(height=450)
     st.altair_chart(chart, use_container_width=True)
+    # ADDED INTERPRETATION
+    st.info(get_interpretation(filtered, 'HEALTHCARE_EXPENSES', 'INSURANCE_STATUS'))
 
 def show_ledger(data):
     st.title("📑 Data Ledger")
