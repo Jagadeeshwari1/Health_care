@@ -6,33 +6,33 @@ import joblib
 from pathlib import Path
 from sklearn.ensemble import RandomForestRegressor
 
-# --- 1. SET PAGE CONFIG ---
-st.set_page_config(page_title="Health Equity Dashboard", layout="wide", page_icon="🏥")
+# --- 1. PAGE CONFIGURATION ---
+st.set_page_config(
+    page_title="Health Equity Insights",
+    page_icon="🏥",
+    layout="wide"
+)
 
-# --- 2. THE DATA LOGIC ---
+# --- 2. DATA LOADING & FEATURE ENGINEERING ---
 @st.cache_data
 def load_and_merge_data():
-    # Find the data directory
     root_path = Path(__file__).resolve().parent.parent
     data_dir = root_path / "data"
 
-    # Load Patients
+    # Load Patients & Calculate Age
     patients = pd.read_csv(data_dir / "patients.csv")
-
-    # --- CRITICAL FIX: Create the 'AGE' column from 'BIRTHDATE' ---
     patients['BIRTHDATE'] = pd.to_datetime(patients['BIRTHDATE'])
     patients['AGE'] = (pd.Timestamp.today() - patients['BIRTHDATE']).dt.days // 365
 
-    # Load Encounters
+    # Load Encounters (Handles split files)
     search_pattern = str(data_dir / "encounters_part_*.csv")
     encounter_files = glob.glob(search_pattern)
     if encounter_files:
         encounters = pd.concat((pd.read_csv(f) for f in encounter_files), ignore_index=True)
     else:
-        # Fallback for local testing
         encounters = pd.read_csv(data_dir / "encounters.csv") if (data_dir / "encounters.csv").exists() else pd.DataFrame()
 
-    # Cleaning Financial Columns (Regex fix)
+    # Clean Financial Columns
     for col in ['INCOME', 'HEALTHCARE_EXPENSES', 'HEALTHCARE_COVERAGE']:
         if col in patients.columns:
             patients[col] = pd.to_numeric(
@@ -41,78 +41,91 @@ def load_and_merge_data():
             ).fillna(0)
 
     # Create Income Tiers
-    patients['INCOME_TIER'] = patients['INCOME'].apply(
-        lambda x: 'Low Income' if x < 35000 else ('Middle Income' if x < 85000 else 'High Income')
-    )
+    def get_tier(income):
+        if income < 35000: return 'Low Income (<$35k)'
+        if income < 85000: return 'Middle Income ($35k-$85k)'
+        return 'High Income (>$85k)'
+    
+    patients['INCOME_TIER'] = patients['INCOME'].apply(get_tier)
 
-    # Merge
+    # Merge Data
     merged_data = pd.merge(encounters, patients, left_on='PATIENT', right_on='Id')
+    return merged_data
 
-    # Create the Report
-    report = merged_data.groupby(['CITY', 'INCOME_TIER']).agg({
-        'TOTAL_CLAIM_COST': 'mean',
-        'HEALTHCARE_EXPENSES': 'mean'
-    }).reset_index()
-
-    return merged_data, report
-
-# --- 3. THE ML LOGIC ---
-def train_prediction_model(df):
-    # Features must match exactly what is in the dataframe
+# --- 3. ML TRAINING LOGIC ---
+def get_model(df):
+    model_path = 'models/cost_predictor.pkl'
+    if os.path.exists(model_path):
+        return joblib.load(model_path)
+    
+    # Train if missing
     features = ['AGE', 'INCOME', 'HEALTHCARE_COVERAGE']
     target = 'TOTAL_CLAIM_COST'
-
-    # Clean and Force Numeric
-    temp_df = df.copy()
-    for col in features + [target]:
-        temp_df[col] = pd.to_numeric(
-            temp_df[col].astype(str).str.replace(r'[\$,]', '', regex=True), 
-            errors='coerce'
-        ).fillna(0)
-
-    X = temp_df[features]
-    y = temp_df[target]
-
+    X = df[features].fillna(0)
+    y = df[target].fillna(0)
+    
     model = RandomForestRegressor(n_estimators=100, random_state=42)
     model.fit(X, y)
-    
     os.makedirs('models', exist_ok=True)
-    joblib.dump(model, 'models/cost_predictor.pkl')
+    joblib.dump(model, model_path)
     return model
 
-# --- 4. THE UI LOGIC ---
+# --- 4. DASHBOARD UI ---
 try:
-    st.title("🏥 Health Equity Insights Dashboard")
-    
-    # Load Data
-    data, report = load_and_merge_data()
-    
-    # Load or Train Model
-    model_path = 'models/cost_predictor.pkl'
-    if not os.path.exists(model_path):
-        with st.spinner("Training Predictive Engine..."):
-            model = train_prediction_model(data)
-    else:
-        model = joblib.load(model_path)
+    data = load_and_merge_data()
+    model = get_model(data)
 
-    st.success("✅ System Online: Analytics and Predictive Model Loaded.")
-    
-    # Display Analytics
-    st.subheader("Vertical Equity Analysis: Cost Burden by City & Income")
-    st.dataframe(report, use_container_width=True)
+    # --- HEADER ---
+    st.title("🏥 Community Health Equity & Cost Tracker")
+    st.markdown("### Analyzing Vertical Equity and Social Needs in California")
+    st.divider()
 
-    # Simple Prediction UI
+    # --- SIDEBAR ---
+    st.sidebar.header("🔍 Filter Analytics")
+    selected_city = st.sidebar.selectbox("Select City", options=sorted(data['CITY'].unique()))
+    income_filter = st.sidebar.multiselect(
+        "Income Tiers", 
+        options=data['INCOME_TIER'].unique(),
+        default=data['INCOME_TIER'].unique()
+    )
+
+    # Apply Filters
+    city_data = data[data['CITY'] == selected_city]
+    filtered_data = data[data['INCOME_TIER'].isin(income_filter)]
+
+    # --- MAIN GRAPHS ---
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("📊 Cost Burden by Income Tier")
+        # Aggregate data for the bar chart
+        chart_data = filtered_data.groupby('INCOME_TIER')['TOTAL_CLAIM_COST'].mean().reset_index()
+        st.bar_chart(chart_data, x="INCOME_TIER", y="TOTAL_CLAIM_COST", color="#ff4b4b")
+        st.caption("Average Total Claim Cost per Encounter by Income Level")
+
+    with col2:
+        st.subheader(f"📍 Common Conditions in {selected_city}")
+        # Top 5 disease clusters
+        disease_counts = city_data['DESCRIPTION'].value_counts().head(5)
+        st.bar_chart(disease_counts, color="#1f77b4")
+        st.caption(f"Top 5 reported clinical conditions in {selected_city}")
+
+    # --- PREDICTIVE SECTION ---
     st.divider()
     st.subheader("🔮 Individual Cost Predictor")
-    c1, c2, c3 = st.columns(3)
-    in_age = c1.number_input("Age", 0, 110, 45)
-    in_income = c2.number_input("Income ($)", 0, 500000, 50000)
-    in_cov = c3.number_input("Coverage ($)", 0, 500000, 10000)
-    
-    if st.button("Predict"):
-        pred = model.predict([[in_age, in_income, in_cov]])[0]
-        st.metric("Predicted Annual Healthcare Cost", f"${pred:,.2f}")
+    p1, p2, p3 = st.columns(3)
+    in_age = p1.number_input("Age", 0, 110, 45)
+    in_income = p2.number_input("Annual Income ($)", 0, 500000, 45000)
+    in_cov = p3.number_input("Healthcare Coverage ($)", 0, 500000, 15000)
+
+    if st.button("Generate Prediction"):
+        prediction = model.predict([[in_age, in_income, in_cov]])[0]
+        st.success(f"Estimated Annual Healthcare Burden: **${prediction:,.2f}**")
+
+    # --- DATA PREVIEW ---
+    with st.expander("🔍 View Filtered Patient Records"):
+        st.dataframe(filtered_data[['Id', 'CITY', 'INCOME', 'TOTAL_CLAIM_COST', 'DESCRIPTION']].head(100))
 
 except Exception as e:
-    st.error("🚨 Critical System Error")
+    st.error("🚨 System Error: Unable to load dashboard components.")
     st.exception(e)
