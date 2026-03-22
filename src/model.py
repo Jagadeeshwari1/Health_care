@@ -1,30 +1,30 @@
+import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
 import joblib
+import os
 from pathlib import Path
-import pandas as pd
 
 def train_model(df):
-    # ✅ Select only required columns
-    df = df[['AGE', 'INCOME', 'HEALTHCARE_COVERAGE', 'HEALTHCARE_EXPENSES']]
+    features = ['AGE', 'INCOME', 'HEALTHCARE_COVERAGE']
+    target = 'TOTAL_CLAIM_COST'
 
-    # ✅ Convert to numeric (VERY IMPORTANT)
-    df = df.apply(pd.to_numeric, errors='coerce')
+    # Clean and Force Numeric
+    for col in features + [target]:
+        df[col] = pd.to_numeric(
+            df[col].astype(str).str.replace(r'[\$,]', '', regex=True), 
+            errors='coerce'
+        ).fillna(0)
 
-    # ✅ Drop missing values
-    df = df.dropna()
+    X = df[features]
+    y = df[target]
 
-    # 🚨 Safety check
-    if df.empty:
-        raise ValueError("No valid data available after cleaning")
-
-    X = df[['AGE', 'INCOME', 'HEALTHCARE_COVERAGE']]
-    y = df['HEALTHCARE_EXPENSES']
-
-    model = RandomForestRegressor(n_estimators=50, random_state=42)
+    model = RandomForestRegressor(n_estimators=100, random_state=42)
     model.fit(X, y)
 
-    root = Path(__file__).parents[1]
-    model_path = root / "models" / "model.pkl"
-    model_path.parent.mkdir(exist_ok=True)
-
-    joblib.dump(model, model_path)
+    # Save to /models folder
+    root_path = Path(__file__).parents[1]
+    model_dir = root_path / "models"
+    os.makedirs(model_dir, exist_ok=True)
+    
+    joblib.dump(model, model_dir / "cost_predictor.pkl")
+    return True
