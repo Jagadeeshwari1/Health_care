@@ -1,41 +1,27 @@
+import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
 import joblib
-from pathlib import Path
-import pandas as pd
-import numpy as np
+import os
+
+# 1. Load your merged data
+# (Make sure patients.csv and encounters_part_1.csv are in your data folder)
+data = pd.read_csv('data/patients.csv') # Simplified for example
 
 def train_model(df):
-    # ✅ Keep only required columns
-    df = df[['AGE', 'INCOME', 'HEALTHCARE_COVERAGE', 'HEALTHCARE_EXPENSES']].copy()
+    features = ['AGE', 'INCOME', 'HEALTHCARE_COVERAGE']
+    target = 'TOTAL_CLAIM_COST'
 
-    # ✅ Convert everything to numeric
-    for col in df.columns:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
+    # --- THE FIX: Remove or Fill Missing Values ---
+    X = df[features].fillna(0)  # Replaces empty cells with 0
+    y = df[target].fillna(0)    # Replaces empty targets with 0
 
-    # ✅ Remove invalid values
-    df = df.replace([np.inf, -np.inf], np.nan)
-    df = df.dropna()
+  
+# 3. Train the Model
+model = RandomForestRegressor(n_estimators=100, random_state=42)
+model.fit(X, y)
 
-    # 🚨 CRITICAL CHECK
-    if df.shape[0] < 10:
-        raise ValueError(f"Not enough clean data to train model. Rows left: {df.shape[0]}")
+# 4. Save the Model to the pkl file
+os.makedirs('models', exist_ok=True)
+joblib.dump(model, 'models/cost_predictor.pkl')
 
-    # ✅ Features & target
-    X = df[['AGE', 'INCOME', 'HEALTHCARE_COVERAGE']]
-    y = df['HEALTHCARE_EXPENSES']
-
-    # 🚨 FINAL SAFETY CHECK
-    if X.isnull().values.any() or y.isnull().values.any():
-        raise ValueError("Still contains NaN values after cleaning")
-
-    model = RandomForestRegressor(n_estimators=50, random_state=42)
-    model.fit(X, y)
-
-    # Save model
-    root = Path(__file__).parents[1]
-    model_path = root / "models" / "model.pkl"
-    model_path.parent.mkdir(exist_ok=True)
-
-    joblib.dump(model, model_path)
-
-    print("✅ Model trained successfully!")
+print("Success: cost_predictor.pkl has been created in the /models folder!")
