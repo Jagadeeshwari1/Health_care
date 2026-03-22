@@ -7,7 +7,6 @@ from pathlib import Path
 # --- 1. SETTINGS & STYLING ---
 st.set_page_config(page_title="Health Equity OS", layout="wide", page_icon="🏥")
 
-# Custom CSS for Large Header and Cards
 st.markdown("""
     <style>
     .big-header {font-size: 50px !important; color: #1E3A8A; font-weight: 800; text-align: center; margin-bottom: 30px; border-bottom: 5px solid #FF4B4B;}
@@ -22,17 +21,13 @@ def get_all_data():
     root_path = Path(__file__).resolve().parent.parent
     data_dir = root_path / "data"
     
-    # Load and Clean
     p = pd.read_csv(data_dir / "patients.csv")
     p['BIRTHDATE'] = pd.to_datetime(p['BIRTHDATE'])
     p['AGE'] = (pd.Timestamp.today() - p['BIRTHDATE']).dt.days // 365
     for c in ['INCOME', 'HEALTHCARE_EXPENSES', 'HEALTHCARE_COVERAGE']:
         p[c] = pd.to_numeric(p[c].astype(str).str.replace(r'[\$,]', '', regex=True), errors='coerce').fillna(0)
     
-    # Income Tiers
     p['INCOME_TIER'] = p['INCOME'].apply(lambda x: 'Low' if x < 35000 else ('Middle' if x < 85000 else 'High'))
-    
-    # Insurance Logic
     p['INSURANCE_STATUS'] = p['HEALTHCARE_COVERAGE'].apply(
         lambda x: 'Under-Insured' if x < 5000 else ('Standard' if x < 15000 else 'Premium')
     )
@@ -50,7 +45,6 @@ def get_interpretation(data, metric, group_col):
 
 def show_overview():
     st.markdown('<p class="big-header">HEALTH EQUITY INSIGHTS PLATFORM</p>', unsafe_allow_html=True)
-    
     st.markdown("""
     <div style="background-color: #eef2ff; padding: 25px; border-radius: 15px; border-left: 8px solid #1E3A8A; margin-bottom: 30px;">
     <h3>Project Mission</h3>
@@ -73,7 +67,7 @@ def show_overview():
 def show_income_page(data):
     st.title("💰 Income Analysis")
     st.sidebar.subheader("Income Filters")
-    tier_filter = st.sidebar.multiselect("Select Tiers", data['INCOME_TIER'].unique(), default=data['INCOME_TIER'].unique())
+    tier_filter = st.sidebar.multiselect("Select Tiers", sorted(data['INCOME_TIER'].unique()), default=data['INCOME_TIER'].unique())
     filtered = data[data['INCOME_TIER'].isin(tier_filter)]
     
     chart = alt.Chart(filtered).mark_bar().encode(
@@ -81,7 +75,7 @@ def show_income_page(data):
         y='mean(TOTAL_CLAIM_COST)',
         color=alt.Color('INCOME_TIER', scale=alt.Scale(
             domain=['High', 'Middle', 'Low'],
-            range=['#FF4B4B', '#FFD700', '#2E8B57'] # Red, Yellow, Green
+            range=['#FF4B4B', '#FFD700', '#2E8B57'] 
         ), legend=None)
     ).properties(height=450)
     st.altair_chart(chart, use_container_width=True)
@@ -89,18 +83,22 @@ def show_income_page(data):
 
 def show_age_page(data):
     st.title("📅 Age Analysis")
-    # Only Line Graph as requested
-    age_data = data.groupby('AGE')['TOTAL_CLAIM_COST'].mean().reset_index()
-    chart = alt.Chart(age_data).mark_line(color='#1E3A8A', strokeWidth=3).encode(
+    st.sidebar.subheader("Age Controls")
+    # Added Sidebar for Age Page
+    age_range = st.sidebar.slider("Filter Age Range", 0, 100, (0, 100))
+    filtered = data[(data['AGE'] >= age_range[0]) & (data['AGE'] <= age_range[1])]
+    
+    age_trend = filtered.groupby('AGE')['TOTAL_CLAIM_COST'].mean().reset_index()
+    chart = alt.Chart(age_trend).mark_line(color='#1E3A8A', strokeWidth=3).encode(
         x='AGE', y='TOTAL_CLAIM_COST'
     ).properties(height=500)
     st.altair_chart(chart, use_container_width=True)
-    st.write("This trend analysis tracks clinical expenditure across the human lifespan.")
+    st.info(get_interpretation(filtered, 'TOTAL_CLAIM_COST', 'AGE'))
 
 def show_health_conditions(data):
     st.title("🩺 Health Conditions")
-    st.sidebar.subheader("Demographic Focus")
-    selected_income = st.sidebar.selectbox("Filter by Income Group", data['INCOME_TIER'].unique())
+    st.sidebar.subheader("Income Filter")
+    selected_income = st.sidebar.selectbox("Filter by Income Group", sorted(data['INCOME_TIER'].unique()))
     
     filtered = data[data['INCOME_TIER'] == selected_income]
     top_problems = filtered.groupby('DESCRIPTION')['TOTAL_CLAIM_COST'].mean().sort_values(ascending=False).head(10).reset_index()
@@ -111,20 +109,29 @@ def show_health_conditions(data):
         color=alt.Color('DESCRIPTION', scale=alt.Scale(scheme='tableau20'), legend=None)
     ).properties(height=500)
     st.altair_chart(chart, use_container_width=True)
-    st.info(f"Interpretation: For {selected_income} groups, {top_problems.iloc[0]['DESCRIPTION']} is the primary cost driver.")
 
 def show_geography_page(data):
-    st.title("🗺️ Geographic Distribution")
-    # Using Map instead of Pie
-    st.subheader("Regional Expenditure Map")
-    # Synthea data typically includes LAT/LON. If not, we simulate a map view by City.
-    map_data = data[['LAT', 'LON', 'TOTAL_CLAIM_COST']].dropna()
-    st.map(map_data, size='TOTAL_CLAIM_COST')
-    st.write(get_interpretation(data, 'TOTAL_CLAIM_COST', 'CITY'))
+    st.title("🌍 Geography Analysis")
+    st.sidebar.subheader("County Filters")
+    # Multi-select for Counties in Sidebar
+    all_counties = sorted(data['COUNTY'].unique())
+    selected_counties = st.sidebar.multiselect("Select Counties", all_counties, default=all_counties[:5])
+    
+    filtered = data[data['COUNTY'].isin(selected_counties)]
+    
+    st.subheader("Regional Cost Comparison (By County)")
+    # Using Horizontal Bar Chart instead of Map/Pie
+    county_stats = filtered.groupby('COUNTY')['TOTAL_CLAIM_COST'].mean().sort_values(ascending=False).reset_index()
+    chart = alt.Chart(county_stats).mark_bar(color='#4B0082').encode(
+        x=alt.X('TOTAL_CLAIM_COST', title="Average Claim Cost ($)"),
+        y=alt.Y('COUNTY', sort='-x', title="County Name")
+    ).properties(height=500)
+    st.altair_chart(chart, use_container_width=True)
+    st.info(get_interpretation(filtered, 'TOTAL_CLAIM_COST', 'COUNTY'))
 
 def show_insurance_page(data):
     st.title("🛡️ Insurance Coverage")
-    st.sidebar.subheader("Coverage Metrics")
+    st.sidebar.subheader("Coverage Filter")
     status_filter = st.sidebar.multiselect("Select Status", data['INSURANCE_STATUS'].unique(), default=data['INSURANCE_STATUS'].unique())
     filtered = data[data['INSURANCE_STATUS'].isin(status_filter)]
     
@@ -132,12 +139,11 @@ def show_insurance_page(data):
         x='INSURANCE_STATUS', y='mean(HEALTHCARE_EXPENSES)', color='INSURANCE_STATUS'
     ).properties(height=450)
     st.altair_chart(chart, use_container_width=True)
-    st.info(get_interpretation(filtered, 'HEALTHCARE_EXPENSES', 'INSURANCE_STATUS'))
 
 def show_ledger(data):
     st.title("📑 Data Ledger")
     search = st.text_input("Search records...", "").lower()
-    cols = ['PATIENT', 'CITY', 'AGE', 'INCOME_TIER', 'INSURANCE_STATUS', 'DESCRIPTION', 'TOTAL_CLAIM_COST']
+    cols = ['PATIENT', 'CITY', 'COUNTY', 'AGE', 'INCOME_TIER', 'INSURANCE_STATUS', 'DESCRIPTION', 'TOTAL_CLAIM_COST']
     existing = [c for c in cols if c in data.columns]
     
     if search:
@@ -147,7 +153,8 @@ def show_ledger(data):
 # --- 4. MAIN ROUTING ---
 try:
     full_df = get_all_data()
-    page = st.sidebar.radio("Navigation", ["Overview", "Income Analysis", "Age Analysis", "Health Conditions", "Geography", "Insurance Coverage", "Ledger"])
+    st.sidebar.title("Navigation")
+    page = st.sidebar.radio("Go to:", ["Overview", "Income Analysis", "Age Analysis", "Health Conditions", "Geography", "Insurance Coverage", "Ledger"])
 
     if page == "Overview": show_overview()
     elif page == "Income Analysis": show_income_page(full_df)
@@ -158,5 +165,5 @@ try:
     elif page == "Ledger": show_ledger(full_df)
 
 except Exception as e:
-    st.error("Deployment Error: Checking Dataset Schema...")
+    st.error("System Configuration Error")
     st.exception(e)
