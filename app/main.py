@@ -1,13 +1,12 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
-import os
+import glob
 from pathlib import Path
 
 # --- 1. SETTINGS & STYLING ---
 st.set_page_config(page_title="Intersectional Health Equity", layout="wide", page_icon="🏥")
 
-# Large Colorful Headers for Overview
 st.markdown("""
     <style>
     .big-header {font-size: 50px !important; color: #1E3A8A; font-weight: 800; text-align: center; margin-bottom: 30px; border-bottom: 5px solid #FF4B4B;}
@@ -16,34 +15,37 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. DATA ENGINE ---
+# --- 2. THE "SMART" DATA ENGINE ---
 @st.cache_data
 def get_all_data():
+    # Use absolute path resolution to avoid FileNotFoundError
     root_path = Path(__file__).resolve().parent.parent
     data_dir = root_path / "data"
     
-    # Load Patients
-    p = pd.read_csv(data_dir / "patients.csv")
+    # 1. Load Patients
+    p_path = data_dir / "patients.csv"
+    if not p_path.exists():
+        raise FileNotFoundError(f"Could not find patients.csv at {p_path}")
+    p = pd.read_csv(p_path)
+    
+    # Clean Patients
     p['BIRTHDATE'] = pd.to_datetime(p['BIRTHDATE'])
     p['AGE'] = (pd.Timestamp.today() - p['BIRTHDATE']).dt.days // 365
-    
-    # Financial Cleaning
     for c in ['INCOME', 'HEALTHCARE_EXPENSES', 'HEALTHCARE_COVERAGE']:
         if c in p.columns:
             p[c] = pd.to_numeric(p[c].astype(str).str.replace(r'[\$,]', '', regex=True), errors='coerce').fillna(0)
-    
-    # Feature Engineering
     p['INCOME_TIER'] = p['INCOME'].apply(lambda x: 'Low' if x < 35000 else ('Middle' if x < 85000 else 'High'))
-    p['INSURANCE_STATUS'] = p['HEALTHCARE_COVERAGE'].apply(
-        lambda x: 'Under-Insured' if x < 5000 else ('Standard' if x < 15000 else 'Premium')
-    )
+
+    # 2. SMART ENCOUNTER LOADING (Finds any file starting with 'encounters')
+    encounter_files = list(data_dir.glob("encounters*.csv"))
+    if not encounter_files:
+        raise FileNotFoundError(f"No encounter files found in {data_dir}")
     
-    # Safe Encounter Loading
-    e_path = data_dir / "encounters_part_1.csv"
-    if not e_path.exists() or e_path.stat().st_size == 0:
-        e_path = data_dir / "encounters.csv"
-        
-    e = pd.read_csv(e_path)
+    # Merge all encounter parts if they exist
+    e_list = [pd.read_csv(f) for f in encounter_files]
+    e = pd.concat(e_list, ignore_index=True)
+    
+    # 3. Final Merge
     df = pd.merge(e, p, left_on='PATIENT', right_on='Id', how='inner')
     return df
 
@@ -60,48 +62,44 @@ try:
 
     # --- GLOBAL SIDEBAR (INTERSECTIONAL ENGINE) ---
     st.sidebar.title("🎛️ Multi-Factor Filters")
-    st.sidebar.markdown("---")
     
-    # Age Filter
-    age_range = st.sidebar.slider("Select Age Bracket", 0, 100, (0, 100))
+    age_range = st.sidebar.slider("Age Bracket", 0, 100, (0, 100))
     
-    # Gender Filter
-    genders = sorted(df['GENDER'].unique()) if 'GENDER' in df.columns else []
-    sel_gender = st.sidebar.multiselect("Gender Focus", genders, default=genders)
+    # Column Check for Gender and Race
+    g_cols = [c for c in ['GENDER', 'Gender'] if c in df.columns]
+    g_col = g_cols[0] if g_cols else None
     
-    # Race Filter
-    races = sorted(df['RACE'].unique()) if 'RACE' in df.columns else []
-    sel_race = st.sidebar.multiselect("Race Focus", races, default=races)
+    r_cols = [c for c in ['RACE', 'Race'] if c in df.columns]
+    r_col = r_cols[0] if r_cols else None
+
+    sel_gender = st.sidebar.multiselect("Gender Focus", sorted(df[g_col].unique())) if g_col else []
+    sel_race = st.sidebar.multiselect("Race Focus", sorted(df[r_col].unique())) if r_col else []
     
-    # Income Filter
-    income_tiers = ['Low', 'Middle', 'High']
-    sel_income = st.sidebar.multiselect("Income Tier Focus", income_tiers, default=income_tiers)
+    tiers = ['Low', 'Middle', 'High']
+    sel_income = st.sidebar.multiselect("Income Tier Focus", tiers, default=tiers)
     
-    # County Filter (Geography Focus)
     counties = sorted(df['COUNTY'].unique()) if 'COUNTY' in df.columns else []
     sel_county = st.sidebar.multiselect("County/Region Focus", counties, default=counties[:10])
 
-    # APPLY THE INTERSECTIONAL MASK
-    mask = (
-        (df['AGE'] >= age_range[0]) & (df['AGE'] <= age_range[1]) &
-        (df['GENDER'].isin(sel_gender)) &
-        (df['RACE'].isin(sel_race)) &
-        (df['INCOME_TIER'].isin(sel_income)) &
-        (df['COUNTY'].isin(sel_county))
-    )
-    filtered_df = df[mask]
+    # APPLY FILTERS
+    mask = (df['AGE'] >= age_range[0]) & (df['AGE'] <= age_range[1])
+    if g_col and sel_gender: mask &= df[g_col].isin(sel_gender)
+    if r_col and sel_race: mask &= df[r_col].isin(sel_race)
+    if sel_income: mask &= df['INCOME_TIER'].isin(sel_income)
+    if sel_county: mask &= df['COUNTY'].isin(sel_county)
+    
+    f_df = df[mask]
 
     # NAVIGATION
     page = st.sidebar.radio("Navigation", ["Overview", "Intersectional Analysis", "Age Trends", "Geography Analysis", "Clinical Impact", "Data Ledger"])
 
-    # --- PAGE 1: OVERVIEW ---
     if page == "Overview":
         st.markdown('<p class="big-header">HEALTH EQUITY INSIGHTS PLATFORM</p>', unsafe_allow_html=True)
         st.markdown("""
         <div style="background-color: #eef2ff; padding: 25px; border-radius: 15px; border-left: 8px solid #1E3A8A; margin-bottom: 30px;">
         <h3>Project Mission</h3>
         This application identifies <strong>Vertical Equity Gaps</strong> across the healthcare landscape. 
-        By intersecting clinical data with multi-dimensional socio-economic indicators—including age, race, gender, and wealth—we empower stakeholders to make informed resource allocations.
+        By intersecting clinical data with multi-dimensional socio-economic indicators—including age, race, gender, and wealth—we empower stakeholders to make informed, intersectional resource allocations.
         <br><br><strong><a href="https://github.com/Jagadeeshwari1/Health_care" target="_blank">🔗 Detailed Project Documentation</a></strong>
         </div>
         """, unsafe_allow_html=True)
@@ -116,66 +114,52 @@ try:
                         '<ul><li><b>Data Analysts:</b> Multi-factor clinical trends</li>'
                         '<li><b>Advocacy Groups:</b> Targeted community support</li></ul></div>', unsafe_allow_html=True)
 
-    # --- PAGE 2: INTERSECTIONAL ANALYSIS ---
     elif page == "Intersectional Analysis":
-        st.title("🧩 Multi-Factor Demographic Analysis")
+        st.title("🧩 Multi-Factor Analysis")
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("Cost by Gender & Income")
-            c = alt.Chart(filtered_df).mark_bar().encode(
-                x=alt.X('GENDER:N', title=None),
-                y=alt.Y('mean(TOTAL_CLAIM_COST):Q', title="Avg Cost ($)"),
+            c = alt.Chart(f_df).mark_bar().encode(
+                x=alt.X(f'{g_col}:N', title=None), y='mean(TOTAL_CLAIM_COST):Q', 
                 color=alt.Color('INCOME_TIER', scale=alt.Scale(domain=['High', 'Middle', 'Low'], range=['#FF4B4B', '#FFD700', '#2E8B57'])),
                 column='INCOME_TIER:N'
-            ).properties(width=120, height=400)
+            ).properties(width=120, height=350)
             st.altair_chart(c)
-            st.info(get_interpretation(filtered_df, 'TOTAL_CLAIM_COST', 'INCOME_TIER'))
+            st.info(get_interpretation(f_df, 'TOTAL_CLAIM_COST', 'INCOME_TIER'))
         with col2:
-            st.subheader("Cost Distribution by Race")
-            rc = alt.Chart(filtered_df).mark_bar(color='#4B0082').encode(
-                x='mean(TOTAL_CLAIM_COST):Q', y=alt.Y('RACE:N', sort='-x', title=None)
-            ).properties(height=400)
+            st.subheader("Cost by Race")
+            rc = alt.Chart(f_df).mark_bar(color='#4B0082').encode(
+                x='mean(TOTAL_CLAIM_COST):Q', y=alt.Y(f'{r_col}:N', sort='-x', title=None)
+            ).properties(height=350)
             st.altair_chart(rc, use_container_width=True)
-            st.info(get_interpretation(filtered_df, 'TOTAL_CLAIM_COST', 'RACE'))
+            st.info(get_interpretation(f_df, 'TOTAL_CLAIM_COST', r_col))
 
-    # --- PAGE 3: AGE TRENDS ---
     elif page == "Age Trends":
-        st.title("📅 Age-Based Expense Trends")
-        age_trend = filtered_df.groupby(['AGE', 'GENDER'])['TOTAL_CLAIM_COST'].mean().reset_index()
-        line = alt.Chart(age_trend).mark_line(strokeWidth=3).encode(x='AGE:Q', y='TOTAL_CLAIM_COST:Q', color='GENDER:N')
+        st.title("📅 Age Trends")
+        trend = f_df.groupby(['AGE', g_col])['TOTAL_CLAIM_COST'].mean().reset_index()
+        line = alt.Chart(trend).mark_line(strokeWidth=3).encode(x='AGE:Q', y='TOTAL_CLAIM_COST:Q', color=f'{g_col}:N')
         st.altair_chart(line, use_container_width=True)
-        st.info(get_interpretation(filtered_df, 'TOTAL_CLAIM_COST', 'AGE'))
+        st.info(get_interpretation(f_df, 'TOTAL_CLAIM_COST', 'AGE'))
 
-    # --- PAGE 4: GEOGRAPHY ANALYSIS ---
     elif page == "Geography Analysis":
         st.title("🌍 Regional Cost Comparison")
-        st.subheader("Top Counties by Average Claim Cost")
-        # Horizontal Bar Chart for Counties
-        county_stats = filtered_df.groupby('COUNTY')['TOTAL_CLAIM_COST'].mean().sort_values(ascending=False).head(10).reset_index()
+        county_stats = f_df.groupby('COUNTY')['TOTAL_CLAIM_COST'].mean().sort_values(ascending=False).head(10).reset_index()
         g_chart = alt.Chart(county_stats).mark_bar(color='#10B981').encode(
-            x=alt.X('TOTAL_CLAIM_COST:Q', title="Average Claim Cost ($)"),
-            y=alt.Y('COUNTY:N', sort='-x', title="County Name")
-        ).properties(height=500)
+            x=alt.X('TOTAL_CLAIM_COST:Q', title="Avg Cost ($)"), y=alt.Y('COUNTY:N', sort='-x')
+        ).properties(height=450)
         st.altair_chart(g_chart, use_container_width=True)
         st.info(get_interpretation(county_stats, 'TOTAL_CLAIM_COST', 'COUNTY'))
 
-    # --- PAGE 5: CLINICAL IMPACT ---
     elif page == "Clinical Impact":
-        st.title("🩺 Intersectional Clinical Conditions")
-        probs = filtered_df.groupby('DESCRIPTION')['TOTAL_CLAIM_COST'].mean().sort_values(ascending=False).head(10).reset_index()
+        st.title("🩺 Clinical Impact")
+        probs = f_df.groupby('DESCRIPTION')['TOTAL_CLAIM_COST'].mean().sort_values(ascending=False).head(10).reset_index()
         st.bar_chart(probs, x='DESCRIPTION', y='TOTAL_CLAIM_COST', color="#1F77B4")
-        st.info(get_interpretation(filtered_df, 'TOTAL_CLAIM_COST', 'DESCRIPTION'))
+        st.info(get_interpretation(f_df, 'TOTAL_CLAIM_COST', 'DESCRIPTION'))
 
-    # --- PAGE 6: DATA LEDGER ---
     elif page == "Data Ledger":
-        st.title("📑 Patient Audit Ledger")
-        search = st.text_input("Search filtered records...", "").lower()
-        cols = ['PATIENT', 'GENDER', 'RACE', 'AGE', 'INCOME_TIER', 'COUNTY', 'DESCRIPTION', 'TOTAL_CLAIM_COST']
-        existing = [c for c in cols if c in filtered_df.columns]
-        if search:
-            filtered_df = filtered_df[filtered_df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)]
-        st.dataframe(filtered_df[existing].head(500), use_container_width=True)
+        st.title("📑 Ledger")
+        st.dataframe(f_df.head(100))
 
 except Exception as e:
-    st.error("🚨 System Crash: Verify data integrity in patients.csv and encounters.csv")
-    st.exception(e)
+    st.error("🚨 System Error")
+    st.write(e)
