@@ -100,7 +100,7 @@ try:
         <h3>Project Mission</h3>
         This application identifies <strong>Vertical Equity Gaps</strong> across the healthcare landscape. 
         By intersecting clinical data with multi-dimensional socio-economic indicators—including age, race, gender, and wealth—we empower stakeholders to make informed, intersectional resource allocations.
-        <br><br><strong><a href="https://github.com/Jagadeeshwari1/Health_care" target="_blank">🔗 Detailed Project Documentation</a></strong>
+        <br><br><strong><a href="https://github.com/thanujakalla/final_project_version-2">🔗 Detailed Project Documentation</a></strong>
         </div>
         """, unsafe_allow_html=True)
 
