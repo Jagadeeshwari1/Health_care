@@ -45,14 +45,6 @@ st.markdown("""
         border: 1px solid #e2e8f0;
         margin-bottom: 25px;
     }
-
-    /* Feedback Form Styling */
-    .feedback-section {
-        background-color: #f1f5f9;
-        padding: 20px;
-        border-radius: 10px;
-        margin-top: 40px;
-    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -118,16 +110,21 @@ try:
             st.subheader("📊 Primary Finding")
             st.info("💡 **Insight:** Under-insured populations currently face a cumulative clinical burden exceeding 35% of their annual household income.")
 
-        # CONTACT & FEEDBACK FORM
+        # CONTACT & FEEDBACK FORM (FIXED)
         st.markdown('<div class="section-header">Contact NGO & Provide Feedback</div>', unsafe_allow_html=True)
         with st.form("ngo_feedback"):
             st.write("Submit your insights or request a detailed regional report.")
             f_name = st.text_input("Full Name")
             f_email = st.text_input("Organization Email")
             f_msg = st.text_area("Observations or Feedback")
-            if st.form_submit_state:
-                st.success("Thank you! Your feedback has been logged for our analysts.")
-            st.form_submit_button("Submit to NGO")
+            
+            # The submit button itself handles the logic
+            submitted = st.form_submit_button("Submit to NGO")
+            if submitted:
+                if f_name and f_email:
+                    st.success(f"Thank you, {f_name}! Your feedback has been logged for our analysts.")
+                else:
+                    st.warning("Please provide your name and email so we can follow up.")
 
     # --- PAGE 2: MAP & COUNTY GRAPHS ---
     elif page == "Interactive Map":
@@ -145,19 +142,21 @@ try:
                                 mapbox_style="carto-positron")
         st.plotly_chart(fig, use_container_width=True)
 
-        # RE-ADDED: County Graphs Logic
+        # Deep-Dive Section with Graphs
         st.markdown('<div class="section-header">Deep-Dive: County Charts</div>', unsafe_allow_html=True)
-        sel_county = st.selectbox("Select County:", sorted(df['COUNTY'].unique()))
+        sel_county = st.selectbox("Select County for Interactive Graphs:", sorted(df['COUNTY'].unique()))
         c_df = df[df['COUNTY'] == sel_county]
         
         c_col1, c_col2 = st.columns(2)
         with c_col1:
             st.plotly_chart(px.bar(c_df.groupby('INCOME_TIER')['TOTAL_CLAIM_COST'].mean().reset_index(), 
-                                   x='INCOME_TIER', y='TOTAL_CLAIM_COST', color='INCOME_TIER',
+                                   x='INCOME_TIER', y='TOTAL_CLAIM_COST', 
+                                   color='INCOME_TIER', color_discrete_sequence=NGO_PALETTE,
                                    title=f"Avg Cost by Income: {sel_county}"), use_container_width=True)
         with c_col2:
             st.plotly_chart(px.bar(c_df.groupby('GENDER')['TOTAL_CLAIM_COST'].mean().reset_index(), 
-                                   x='GENDER', y='TOTAL_CLAIM_COST', color='GENDER',
+                                   x='GENDER', y='TOTAL_CLAIM_COST', 
+                                   color='GENDER', color_discrete_sequence=NGO_PALETTE,
                                    title=f"Avg Cost by Gender: {sel_county}"), use_container_width=True)
 
     # --- PAGE 3: COMPARISON ---
@@ -186,5 +185,5 @@ try:
         st.plotly_chart(px.line(combined, x='YEAR', y=target, color='Status', markers=True, color_discrete_map={'Past':'#94a3b8', 'Future':'#fb7185'}), use_container_width=True)
 
 except Exception as e:
-    st.error("🚨 Configuration Error")
+    st.error("🚨 System Update Required")
     st.exception(e)
