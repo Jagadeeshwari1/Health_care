@@ -135,21 +135,18 @@ try:
             st.metric("Avg Claims Cost", f"${c_df['TOTAL_CLAIM_COST'].mean():,.2f}")
             st.metric("Avg Income", f"${c_df['INCOME'].mean():,.2f}")
 
-    # --- PAGE 3: POPULATION COMPARISON ---
+    # --- PAGE 3: COMPARISON ---
     elif page == "Population Comparison":
         st.markdown('<div class="big-header">Intersectional Comparison</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-header">Demographic Equity Metrics</div>', unsafe_allow_html=True)
-        
-        metric = st.selectbox("Select Metric:", ['TOTAL_CLAIM_COST', 'INSURANCE_COVERAGE_PCT', 'INCOME'])
-        
-        col_a, col_b = st.columns(2)
-        with col_a:
-            demo_a = st.selectbox("Compare Group A by:", ['RACE', 'GENDER', 'INCOME_TIER'], key="comp_a_sel")
-            st.plotly_chart(px.bar(df.groupby(demo_a)[metric].mean().reset_index(), x=demo_a, y=metric, color=demo_a, color_discrete_sequence=NGO_PALETTE), use_container_width=True, key="comp_chart_a")
-            
-        with col_b:
-            demo_b = st.selectbox("Compare Group B by:", ['RACE', 'GENDER', 'INCOME_TIER'], key="comp_b_sel")
-            st.plotly_chart(px.bar(df.groupby(demo_b)[metric].mean().reset_index(), x=demo_b, y=metric, color=demo_b, color_discrete_sequence=NGO_PALETTE), use_container_width=True, key="comp_chart_b")
+        metric = st.selectbox("Metric:", ['TOTAL_CLAIM_COST', 'INSURANCE_COVERAGE_PCT'])
+        c1, c2 = st.columns(2)
+        with c1:
+            demo_a = st.selectbox("Compare Group A by:", ['GENDER', 'RACE', 'INCOME_TIER'], key="a")
+            st.plotly_chart(px.bar(df.groupby(demo_a)[metric].mean().reset_index(), x=demo_a, y=metric, color=demo_a, color_discrete_sequence=NGO_PALETTE), use_container_width=True)
+        with c2:
+            demo_b = st.selectbox("Group B (Trend) by:", ['INCOME_TIER', 'RACE', 'GENDER'], key="b")
+            st.plotly_chart(px.line(df.groupby(['YEAR', demo_b])[metric].mean().reset_index(), x='YEAR', y=metric, color=demo_b, color_discrete_sequence=NGO_PALETTE), use_container_width=True)
 
     # --- PAGE 4: PREDICTIVE ---
     elif page == "Predictive Forecasting":
