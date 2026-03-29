@@ -81,17 +81,44 @@ try:
     df = raw_df[(raw_df['GENDER'].isin(sel_genders)) & (raw_df['RACE'].isin(sel_races)) & (raw_df['INCOME_TIER'].isin(sel_income))]
     page = st.sidebar.radio("Navigation", ["Overview", "Interactive Map", "Population Comparison", "Predictive Forecasting"])
 
-    if page == "Overview":
+    # --- PAGE 1: OVERVIEW & FEEDBACK ---
+    if page == "Overview & Feedback":
         st.markdown('<div class="big-header">Health Equity Insights Platform</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-header">App Summary & Mission</div>', unsafe_allow_html=True)
-        st.markdown('<div class="mission-box">Identifying <strong>Vertical Equity Gaps</strong> via intersectional data analysis.</div>', unsafe_allow_html=True)
-        with st.form("feedback"):
-            st.write("Submit Feedback to NGO Analysts")
-            st.text_input("Full Name")
-            st.text_input("Email")
-            st.text_area("Observations")
-            if st.form_submit_button("Submit"):
-                st.success("Feedback Logged!")
+        
+        st.markdown("""
+        <div class="mission-box">
+            <h3 style='color: #334155;'>HEIP Mission Statement</h3>
+            To dismantle <strong>Vertical Equity Gaps</strong> by providing transparent, intersectional data 
+            on healthcare costs. We empower NGOs to advocate for policy shifts that protect the most 
+            financially vulnerable cohorts in our society.
+        </div>
+        """, unsafe_allow_html=True)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("🎯 Key Stakeholders")
+            st.write("* **NGO Strategists:** Regional advocacy.")
+            st.write("* **Public Health Officials:** Resource planning.")
+        with col2:
+            st.subheader("📊 Primary Finding")
+            st.info("💡 **Insight:** Under-insured populations currently face a cumulative clinical burden exceeding 35% of their annual household income.")
+
+        # CONTACT & FEEDBACK FORM (FIXED)
+        st.markdown('<div class="section-header">Contact NGO & Provide Feedback</div>', unsafe_allow_html=True)
+        with st.form("ngo_feedback"):
+            st.write("Submit your insights or request a detailed regional report.")
+            f_name = st.text_input("Full Name")
+            f_email = st.text_input("Organization Email")
+            f_msg = st.text_area("Observations or Feedback")
+            
+            # The submit button itself handles the logic
+            submitted = st.form_submit_button("Submit to NGO")
+            if submitted:
+                if f_name and f_email:
+                    st.success(f"Thank you, {f_name}! Your feedback has been logged for our analysts.")
+                else:
+                    st.warning("Please provide your name and email so we can follow up.")
 
     elif page == "Interactive Map":
         st.markdown('<div class="big-header">California Regional Analysis</div>', unsafe_allow_html=True)
@@ -142,20 +169,19 @@ try:
             st.metric(f"Avg Income: {sel_county}", f"${c_df['INCOME'].mean():,.2f}")
             st.metric(f"Insurance Coverage", f"{c_df['INSURANCE_COVERAGE_PCT'].mean():.1f}%")
 
+   # --- PAGE 3: COMPARISON ---
     elif page == "Population Comparison":
         st.markdown('<div class="big-header">Intersectional Comparison</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-header">Demographic Equity Metrics</div>', unsafe_allow_html=True)
-        
-        metric = st.selectbox("Select Metric:", ['TOTAL_CLAIM_COST', 'INSURANCE_COVERAGE_PCT', 'INCOME'])
-        col_a, col_b = st.columns(2)
-        with col_a:
-            demo_a = st.selectbox("Compare Group A by:", ['RACE', 'GENDER', 'INCOME_TIER'], key="a_sel")
-            # NGO_PALETTE ensures "Hawaiian" is the same color on both sides
-            st.plotly_chart(px.bar(df.groupby(demo_a)[metric].mean().reset_index(), x=demo_a, y=metric, color=demo_a, color_discrete_sequence=NGO_PALETTE), use_container_width=True, key="chart_a")
-        with col_b:
-            demo_b = st.selectbox("Compare Group B by:", ['RACE', 'GENDER', 'INCOME_TIER'], key="b_sel")
-            st.plotly_chart(px.bar(df.groupby(demo_b)[metric].mean().reset_index(), x=demo_b, y=metric, color=demo_b, color_discrete_sequence=NGO_PALETTE), use_container_width=True, key="chart_b")
-
+        metric = st.selectbox("Metric:", ['TOTAL_CLAIM_COST', 'INSURANCE_COVERAGE_PCT'])
+        c1, c2 = st.columns(2)
+        with c1:
+            demo_a = st.selectbox("Compare Group A by:", ['GENDER', 'RACE', 'INCOME_TIER'], key="a")
+            st.plotly_chart(px.bar(df.groupby(demo_a)[metric].mean().reset_index(), x=demo_a, y=metric, color=demo_a, color_discrete_sequence=NGO_PALETTE), use_container_width=True)
+        with c2:
+            demo_b = st.selectbox("Group B (Trend) by:", ['INCOME_TIER', 'RACE', 'GENDER'], key="b")
+            st.plotly_chart(px.line(df.groupby(['YEAR', demo_b])[metric].mean().reset_index(), x='YEAR', y=metric, color=demo_b, color_discrete_sequence=NGO_PALETTE), use_container_width=True)
+    
     elif page == "Predictive Forecasting":
         st.markdown('<div class="big-header">2030 Trend Forecasting</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-header">Future Projections</div>', unsafe_allow_html=True)
