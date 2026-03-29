@@ -42,7 +42,6 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# Fixed NGO Palette for Legend Consistency across all charts
 NGO_PALETTE = px.colors.qualitative.Safe 
 
 # --- 2. DATA ENGINE ---
@@ -51,7 +50,6 @@ def load_and_prep_data():
     root_path = Path(__file__).resolve().parent.parent
     data_dir = root_path / "data"
     
-    # Load Patients
     p = pd.read_csv(data_dir / "patients.csv")
     for col in ['INCOME', 'HEALTHCARE_EXPENSES', 'HEALTHCARE_COVERAGE']:
         if col in p.columns:
@@ -60,7 +58,6 @@ def load_and_prep_data():
     p['INSURANCE_COVERAGE_PCT'] = (p['HEALTHCARE_COVERAGE'] / (p['HEALTHCARE_EXPENSES'] + 1) * 100).clip(0, 100)
     p['INCOME_TIER'] = p['INCOME'].apply(lambda x: 'Low' if x < 35000 else ('Middle' if x < 85000 else 'High'))
     
-    # Load Encounters & Extract Year of Encounter
     e_files = list(data_dir.glob("encounters*.csv"))
     e = pd.concat([pd.read_csv(f) for f in e_files if f.stat().st_size > 0], ignore_index=True)
     e['START'] = pd.to_datetime(e['START'])
@@ -79,10 +76,12 @@ try:
     sel_income = st.sidebar.multiselect("Income Tier", options=['Low', 'Middle', 'High'], default=['Low', 'Middle', 'High'])
     
     df = raw_df[(raw_df['GENDER'].isin(sel_genders)) & (raw_df['RACE'].isin(sel_races)) & (raw_df['INCOME_TIER'].isin(sel_income))]
+    
+    # NAVIGATION (Fixed naming here)
     page = st.sidebar.radio("Navigation", ["Overview", "Interactive Map", "Population Comparison", "Predictive Forecasting"])
 
-    # --- PAGE 1: OVERVIEW & FEEDBACK ---
-    if page == "Overview & Feedback":
+    # --- PAGE 1: OVERVIEW (Fixed Logic) ---
+    if page == "Overview":
         st.markdown('<div class="big-header">Health Equity Insights Platform</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-header">App Summary & Mission</div>', unsafe_allow_html=True)
         
@@ -104,57 +103,39 @@ try:
             st.subheader("📊 Primary Finding")
             st.info("💡 **Insight:** Under-insured populations currently face a cumulative clinical burden exceeding 35% of their annual household income.")
 
-        # CONTACT & FEEDBACK FORM (FIXED)
+        # FEEDBACK FORM
         st.markdown('<div class="section-header">Contact NGO & Provide Feedback</div>', unsafe_allow_html=True)
         with st.form("ngo_feedback"):
             st.write("Submit your insights or request a detailed regional report.")
             f_name = st.text_input("Full Name")
             f_email = st.text_input("Organization Email")
             f_msg = st.text_area("Observations or Feedback")
-            
-            # The submit button itself handles the logic
             submitted = st.form_submit_button("Submit to NGO")
             if submitted:
                 if f_name and f_email:
-                    st.success(f"Thank you, {f_name}! Your feedback has been logged for our analysts.")
+                    st.success(f"Thank you, {f_name}! Your feedback has been logged.")
                 else:
-                    st.warning("Please provide your name and email so we can follow up.")
+                    st.warning("Please provide your name and email.")
 
+    # --- PAGE 2: INTERACTIVE MAP ---
     elif page == "Interactive Map":
         st.markdown('<div class="big-header">California Regional Analysis</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-header">Expenditure Bubble Map</div>', unsafe_allow_html=True)
-        st.info("💡 **Summary:** Large bubbles represent counties with higher average healthcare costs. Hover to see Income and Coverage.")
+        st.info("💡 **Summary:** Large bubbles represent counties with higher average healthcare costs.")
         
         map_stats = df.groupby('COUNTY').agg({
-            'TOTAL_CLAIM_COST': 'mean', 
-            'INCOME': 'mean', 
-            'INSURANCE_COVERAGE_PCT': 'mean', 
-            'LAT': 'mean', 
-            'LON': 'mean'
+            'TOTAL_CLAIM_COST': 'mean', 'INCOME': 'mean', 'INSURANCE_COVERAGE_PCT': 'mean', 'LAT': 'mean', 'LON': 'mean'
         }).reset_index()
 
-        # Reliable Bubble Map (No external GeoJSON needed)
         fig_bub = px.scatter_mapbox(
-            map_stats, 
-            lat="LAT", lon="LON", 
-            color="TOTAL_CLAIM_COST", 
-            size="TOTAL_CLAIM_COST",
-            hover_name="COUNTY", 
-            # Customizing hover data to hide Lat/Lon and show requested metrics
-            hover_data={
-                'LAT': False, 
-                'LON': False, 
-                'TOTAL_CLAIM_COST': ':,.2f', 
-                'INCOME': ':,.0f', 
-                'INSURANCE_COVERAGE_PCT': ':.1f%'
-            },
-            color_continuous_scale="Teal", 
-            size_max=25, zoom=5, 
-            mapbox_style="carto-positron"
+            map_stats, lat="LAT", lon="LON", color="TOTAL_CLAIM_COST", 
+            size="TOTAL_CLAIM_COST", hover_name="COUNTY",
+            hover_data={'LAT': False, 'LON': False, 'TOTAL_CLAIM_COST': ':,.2f', 'INCOME': ':,.0f', 'INSURANCE_COVERAGE_PCT': ':.1f%'},
+            color_continuous_scale="Teal", size_max=25, zoom=5, mapbox_style="carto-positron"
         )
         st.plotly_chart(fig_bub, use_container_width=True, key="bubble_map_final")
 
-        # DEEP-DIVE GRAPHS WITH CUSTOMIZABLE AXES
+        # DEEP-DIVE
         st.markdown('<div class="section-header">Deep-Dive: County Statistics</div>', unsafe_allow_html=True)
         sel_county = st.selectbox("Select County:", sorted(df['COUNTY'].unique()))
         c_df = df[df['COUNTY'] == sel_county]
@@ -167,9 +148,8 @@ try:
         with c2:
             st.metric(f"Avg Claims: {sel_county}", f"${c_df['TOTAL_CLAIM_COST'].mean():,.2f}")
             st.metric(f"Avg Income: {sel_county}", f"${c_df['INCOME'].mean():,.2f}")
-            st.metric(f"Insurance Coverage", f"{c_df['INSURANCE_COVERAGE_PCT'].mean():.1f}%")
 
-   # --- PAGE 3: COMPARISON ---
+    # --- PAGE 3: COMPARISON ---
     elif page == "Population Comparison":
         st.markdown('<div class="big-header">Intersectional Comparison</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-header">Demographic Equity Metrics</div>', unsafe_allow_html=True)
@@ -177,11 +157,12 @@ try:
         c1, c2 = st.columns(2)
         with c1:
             demo_a = st.selectbox("Compare Group A by:", ['GENDER', 'RACE', 'INCOME_TIER'], key="a")
-            st.plotly_chart(px.bar(df.groupby(demo_a)[metric].mean().reset_index(), x=demo_a, y=metric, color=demo_a, color_discrete_sequence=NGO_PALETTE), use_container_width=True)
+            st.plotly_chart(px.bar(df.groupby(demo_a)[metric].mean().reset_index(), x=demo_a, y=metric, color=demo_a, color_discrete_sequence=NGO_PALETTE), use_container_width=True, key="chart_a")
         with c2:
-            demo_b = st.selectbox("Group B (Trend) by:", ['INCOME_TIER', 'RACE', 'GENDER'], key="b")
-            st.plotly_chart(px.line(df.groupby(['YEAR', demo_b])[metric].mean().reset_index(), x='YEAR', y=metric, color=demo_b, color_discrete_sequence=NGO_PALETTE), use_container_width=True)
-    
+            demo_b = st.selectbox("Compare Group B by:", ['INCOME_TIER', 'RACE', 'GENDER'], key="b")
+            st.plotly_chart(px.line(df.groupby(['YEAR', demo_b])[metric].mean().reset_index(), x='YEAR', y=metric, color=demo_b, color_discrete_sequence=NGO_PALETTE), use_container_width=True, key="chart_b")
+
+    # --- PAGE 4: PREDICTIVE ---
     elif page == "Predictive Forecasting":
         st.markdown('<div class="big-header">2030 Trend Forecasting</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-header">Future Projections</div>', unsafe_allow_html=True)
