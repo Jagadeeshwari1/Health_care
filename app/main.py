@@ -117,25 +117,41 @@ try:
                 else:
                     st.warning("Please provide your name and email.")
 
-    # --- PAGE 2: INTERACTIVE MAP ---
-    elif page == "Interactive Map":
+  elif page == "Interactive Map":
         st.markdown('<div class="big-header">California Regional Analysis</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-header">Expenditure Bubble Map</div>', unsafe_allow_html=True)
-        st.info("💡 **Summary:** Large bubbles represent counties with higher average healthcare costs.")
+        st.info("💡 **Summary:** Large bubbles represent counties with higher average healthcare costs. Hover to see Income and Coverage.")
         
         map_stats = df.groupby('COUNTY').agg({
-            'TOTAL_CLAIM_COST': 'mean', 'INCOME': 'mean', 'INSURANCE_COVERAGE_PCT': 'mean', 'LAT': 'mean', 'LON': 'mean'
+            'TOTAL_CLAIM_COST': 'mean', 
+            'INCOME': 'mean', 
+            'INSURANCE_COVERAGE_PCT': 'mean', 
+            'LAT': 'mean', 
+            'LON': 'mean'
         }).reset_index()
 
+        # Reliable Bubble Map (No external GeoJSON needed)
         fig_bub = px.scatter_mapbox(
-            map_stats, lat="LAT", lon="LON", color="TOTAL_CLAIM_COST", 
-            size="TOTAL_CLAIM_COST", hover_name="COUNTY",
-            hover_data={'LAT': False, 'LON': False, 'TOTAL_CLAIM_COST': ':,.2f', 'INCOME': ':,.0f', 'INSURANCE_COVERAGE_PCT': ':.1f%'},
-            color_continuous_scale="Teal", size_max=25, zoom=5, mapbox_style="carto-positron"
+            map_stats, 
+            lat="LAT", lon="LON", 
+            color="TOTAL_CLAIM_COST", 
+            size="TOTAL_CLAIM_COST",
+            hover_name="COUNTY", 
+            # Customizing hover data to hide Lat/Lon and show requested metrics
+            hover_data={
+                'LAT': False, 
+                'LON': False, 
+                'TOTAL_CLAIM_COST': ':,.2f', 
+                'INCOME': ':,.0f', 
+                'INSURANCE_COVERAGE_PCT': ':.1f%'
+            },
+            color_continuous_scale="Teal", 
+            size_max=25, zoom=5, 
+            mapbox_style="carto-positron"
         )
         st.plotly_chart(fig_bub, use_container_width=True, key="bubble_map_final")
 
-        # DEEP-DIVE
+        # DEEP-DIVE GRAPHS WITH CUSTOMIZABLE AXES
         st.markdown('<div class="section-header">Deep-Dive: County Statistics</div>', unsafe_allow_html=True)
         sel_county = st.selectbox("Select County:", sorted(df['COUNTY'].unique()))
         c_df = df[df['COUNTY'] == sel_county]
@@ -148,6 +164,7 @@ try:
         with c2:
             st.metric(f"Avg Claims: {sel_county}", f"${c_df['TOTAL_CLAIM_COST'].mean():,.2f}")
             st.metric(f"Avg Income: {sel_county}", f"${c_df['INCOME'].mean():,.2f}")
+            st.metric(f"Insurance Coverage", f"{c_df['INSURANCE_COVERAGE_PCT'].mean():.1f}%")
 
     # --- PAGE 3: COMPARISON ---
     elif page == "Population Comparison":
