@@ -117,7 +117,8 @@ try:
                 else:
                     st.warning("Please provide your name and email.")
 
-  elif page == "Interactive Map":
+ # --- PAGE 2: INTERACTIVE MAP ---
+    elif page == "Interactive Map":
         st.markdown('<div class="big-header">California Regional Analysis</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-header">Expenditure Bubble Map</div>', unsafe_allow_html=True)
         st.info("💡 **Summary:** Large bubbles represent counties with higher average healthcare costs. Hover to see Income and Coverage.")
