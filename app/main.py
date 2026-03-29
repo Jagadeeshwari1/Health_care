@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import requests
 from pathlib import Path
 from sklearn.linear_model import LinearRegression
 
@@ -20,7 +19,7 @@ def load_and_prep_data():
     p['BIRTHDATE'] = pd.to_datetime(p['BIRTHDATE'])
     p['AGE'] = (pd.Timestamp.today() - p['BIRTHDATE']).dt.days // 365
     
-    # Clean Financials
+    # Financial Cleaning
     for col in ['INCOME', 'HEALTHCARE_EXPENSES', 'HEALTHCARE_COVERAGE']:
         if col in p.columns:
             p[col] = pd.to_numeric(p[col].astype(str).str.replace(r'[\$,]', '', regex=True), errors='coerce').fillna(0)
@@ -37,23 +36,11 @@ def load_and_prep_data():
     
     return pd.merge(e, p, left_on='PATIENT', right_on='Id', how='inner')
 
-@st.cache_data
-def get_ca_geojson():
-    # Stable Raw URL for California Counties
-    url = "https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json"
-    # Note: If this fails, we fall back to a non-map visualization to prevent system crash
-    try:
-        response = requests.get(url)
-        return response.json()
-    except:
-        return None
-
-# --- 3. MAIN APP LOGIC ---
+# --- 3. MAIN APP ---
 try:
     raw_df = load_and_prep_data()
-    geojson = get_ca_geojson()
 
-    # --- GLOBAL SIDEBAR FILTERS (Professor's Request) ---
+    # --- GLOBAL SIDEBAR FILTERS ---
     st.sidebar.title("🎛️ Intersectional Filters")
     st.sidebar.markdown("---")
     
@@ -61,7 +48,7 @@ try:
     sel_races = st.sidebar.multiselect("Race/Ethnicity", options=sorted(raw_df['RACE'].unique()), default=raw_df['RACE'].unique())
     sel_income = st.sidebar.multiselect("Income Tier", options=['Low', 'Middle', 'High'], default=['Low', 'Middle', 'High'])
     
-    # Filter dataset globally
+    # Apply Filters Globally
     df = raw_df[
         (raw_df['GENDER'].isin(sel_genders)) & 
         (raw_df['RACE'].isin(sel_races)) & 
@@ -76,7 +63,7 @@ try:
         st.title("🏥 Health Equity Insights Platform (HEIP)")
         st.subheader("App Summary")
         st.markdown("""
-        **What is this app?** HEIP is a strategic analytical tool designed to identify **Vertical Equity Gaps** in healthcare. It analyzes the intersection of clinical costs, personal wealth, and demographic identity to find underserved populations.
+        **What is this app?** HEIP is a strategic analytical tool designed to identify **Vertical Equity Gaps** in healthcare. It analyzes the intersection of clinical costs, personal wealth, and demographic identity.
 
         **Target Users:**
         * **Public Health Officials:** For regional resource allocation.
@@ -86,30 +73,29 @@ try:
         """)
         st.info("💡 **Instructions:** Use the sidebar to filter demographics. These settings update all charts instantly.")
 
-    # --- TAB: INTERACTIVE MAP ---
+    # --- TAB: INTERACTIVE MAP (BUBBLE MAP VERSION) ---
     elif page == "Interactive Map":
         st.title("🗺️ Regional Analysis Map")
-        st.markdown("> **Summary:** This map visualizes average claim costs. Darker colors represent higher financial burdens. Hover for income and insurance details.")
+        st.markdown("> **Summary:** This map uses coordinate data to show healthcare spending hotspots. Larger/Darker bubbles represent higher average claim costs in that county.")
         
+        # Aggregate by County and include Lat/Lon
         map_stats = df.groupby('COUNTY').agg({
             'TOTAL_CLAIM_COST': 'mean',
             'INCOME': 'mean',
-            'INSURANCE_COVERAGE_PCT': 'mean'
+            'INSURANCE_COVERAGE_PCT': 'mean',
+            'LAT': 'mean',
+            'LON': 'mean'
         }).reset_index()
 
-        # If GeoJSON failed, use a bar chart; otherwise, show map
-        if geojson:
-            fig = px.choropleth(
-                map_stats, geojson=geojson, locations='COUNTY', 
-                featureidkey="properties.NAME", color='TOTAL_CLAIM_COST',
-                color_continuous_scale="Viridis", scope="usa",
-                hover_data={'INCOME': ':,.0f', 'INSURANCE_COVERAGE_PCT': ':.1f%'}
-            )
-            fig.update_geos(fitbounds="locations", visible=False)
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("Map Data Unavailable. Showing County Bar Chart instead.")
-            st.bar_chart(map_stats, x='COUNTY', y='TOTAL_CLAIM_COST')
+        # Bubble Map is much more stable than Choropleth for presentations
+        fig = px.scatter_mapbox(
+            map_stats, lat="LAT", lon="LON", color="TOTAL_CLAIM_COST", 
+            size="TOTAL_CLAIM_COST", hover_name="COUNTY",
+            hover_data={'INCOME': ':,.0f', 'INSURANCE_COVERAGE_PCT': ':.1f%'},
+            color_continuous_scale="Viridis", size_max=30, zoom=5,
+            mapbox_style="carto-positron", title="Average Claims Cost Hotspots"
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
         st.divider()
         st.subheader("🔍 Deep-Dive: County Statistics")
@@ -157,5 +143,5 @@ try:
         st.plotly_chart(px.line(combined, x='Year', y='Value', color='Status', markers=True), use_container_width=True)
 
 except Exception as e:
-    st.error("🚨 Critical System Error")
+    st.error("🚨 System Update in Progress. Checking data integrity...")
     st.exception(e)
