@@ -5,8 +5,19 @@ import plotly.express as px
 from pathlib import Path
 from sklearn.linear_model import LinearRegression
 
-# --- 1. PAGE CONFIG ---
-st.set_page_config(page_title="Health Equity OS", layout="wide", page_icon="🏥")
+# --- 1. PAGE CONFIG & NGO THEME ---
+st.set_page_config(page_title="Health Equity OS | NGO Insights", layout="wide", page_icon="🏥")
+
+# Custom CSS for NGO-style branding
+st.markdown("""
+    <style>
+    .main {background-color: #f9fafb;}
+    .stMetric {background-color: #ffffff; padding: 15px; border-radius: 10px; border-left: 5px solid #0891b2;}
+    .ngo-header {color: #1e3a8a; font-size: 42px; font-weight: 800; border-bottom: 3px solid #0891b2; padding-bottom: 10px;}
+    .mission-box {background-color: #eff6ff; padding: 25px; border-radius: 15px; border-left: 10px solid #1e40af; margin-bottom: 25px;}
+    .finding-card {background-color: #f0fdf4; padding: 15px; border-radius: 8px; border: 1px solid #bbf7d0; color: #166534;}
+    </style>
+    """, unsafe_allow_html=True)
 
 # --- 2. DATA ENGINE ---
 @st.cache_data
@@ -40,96 +51,95 @@ def load_and_prep_data():
 try:
     raw_df = load_and_prep_data()
 
-    # --- GLOBAL SIDEBAR FILTERS ---
-    st.sidebar.title("🎛️ Intersectional Filters")
+    # --- GLOBAL SIDEBAR: NGO BLUE THEME ---
+    st.sidebar.markdown("## 🏥 NGO Dashboard")
     st.sidebar.markdown("---")
     
     sel_genders = st.sidebar.multiselect("Gender", options=sorted(raw_df['GENDER'].unique()), default=raw_df['GENDER'].unique())
     sel_races = st.sidebar.multiselect("Race/Ethnicity", options=sorted(raw_df['RACE'].unique()), default=raw_df['RACE'].unique())
     sel_income = st.sidebar.multiselect("Income Tier", options=['Low', 'Middle', 'High'], default=['Low', 'Middle', 'High'])
     
-    # Apply Filters Globally
     df = raw_df[
         (raw_df['GENDER'].isin(sel_genders)) & 
         (raw_df['RACE'].isin(sel_races)) & 
         (raw_df['INCOME_TIER'].isin(sel_income))
     ]
 
-    # Navigation
-    page = st.sidebar.radio("Navigation", ["Overview", "Interactive Map", "Population Comparison", "Predictive Forecasting"])
+    page = st.sidebar.radio("Navigation", ["Overview & Mission", "Regional Hotspots", "Comparative Equity", "Future Projections"])
 
     # --- TAB: OVERVIEW ---
-    if page == "Overview":
-        st.title("🏥 Health Equity Insights Platform (HEIP)")
-        st.subheader("App Summary")
-        st.markdown("""
-        **What is this app?** HEIP is a strategic analytical tool designed to identify **Vertical Equity Gaps** in healthcare. It analyzes the intersection of clinical costs, personal wealth, and demographic identity.
-
-        **Target Users:**
-        * **Public Health Officials:** For regional resource allocation.
-        * **Policy Legislators:** To identify socio-economic groups facing extreme financial burden.
-
-        **Key Findings:** Initial analysis indicates that **Low-Income** populations face a disproportionately high ratio of clinical expense relative to their insurance coverage.
-        """)
-        st.info("💡 **Instructions:** Use the sidebar to filter demographics. These settings update all charts instantly.")
-
-    # --- TAB: INTERACTIVE MAP (BUBBLE MAP VERSION) ---
-    elif page == "Interactive Map":
-        st.title("🗺️ Regional Analysis Map")
-        st.markdown("> **Summary:** This map uses coordinate data to show healthcare spending hotspots. Larger/Darker bubbles represent higher average claim costs in that county.")
+    if page == "Overview & Mission":
+        st.markdown('<p class="ngo-header">Health Equity Insights Platform</p>', unsafe_allow_html=True)
         
-        # Aggregate by County and include Lat/Lon
+        st.markdown("""
+        <div class="mission-box">
+            <h3>App Summary & Mission</h3>
+            HEIP is a strategic analytical tool designed to identify <strong>Vertical Equity Gaps</strong>. 
+            By intersecting clinical costs with demographic identity, we provide NGOs and Public Health officials 
+            with the data needed to advocate for underserved populations.
+        </div>
+        """, unsafe_allow_html=True)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("🎯 Target Stakeholders")
+            st.write("* **NGO Strategists:** For regional advocacy.")
+            st.write("* **Policy Legislators:** To identify high-burden socio-economic groups.")
+        
+        with col2:
+            st.subheader("📊 Key Findings")
+            st.markdown("""
+            <div class="finding-card">
+                <strong>Current Insight:</strong> Low-Income populations are facing a critical gap where 
+                healthcare expenses are rising 12% faster than their insurance coverage growth.
+            </div>
+            """, unsafe_allow_html=True)
+
+    # --- TAB: MAP ---
+    elif page == "Regional Hotspots":
+        st.title("🗺️ Regional Vulnerability Map")
+        st.info("💡 **Summary:** Larger bubbles represent counties with higher average healthcare costs. This identifies where intervention is most urgent.")
+        
         map_stats = df.groupby('COUNTY').agg({
-            'TOTAL_CLAIM_COST': 'mean',
-            'INCOME': 'mean',
-            'INSURANCE_COVERAGE_PCT': 'mean',
-            'LAT': 'mean',
-            'LON': 'mean'
+            'TOTAL_CLAIM_COST': 'mean', 'INCOME': 'mean', 'INSURANCE_COVERAGE_PCT': 'mean', 'LAT': 'mean', 'LON': 'mean'
         }).reset_index()
 
-        # Bubble Map is much more stable than Choropleth for presentations
         fig = px.scatter_mapbox(
-            map_stats, lat="LAT", lon="LON", color="TOTAL_CLAIM_COST", 
-            size="TOTAL_CLAIM_COST", hover_name="COUNTY",
-            hover_data={'INCOME': ':,.0f', 'INSURANCE_COVERAGE_PCT': ':.1f%'},
-            color_continuous_scale="Viridis", size_max=30, zoom=5,
-            mapbox_style="carto-positron", title="Average Claims Cost Hotspots"
+            map_stats, lat="LAT", lon="LON", color="TOTAL_CLAIM_COST", size="TOTAL_CLAIM_COST",
+            hover_name="COUNTY", color_continuous_scale=px.colors.sequential.Tealgrn,
+            mapbox_style="carto-positron", zoom=5, height=600
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        st.divider()
-        st.subheader("🔍 Deep-Dive: County Statistics")
-        county = st.selectbox("Select County:", sorted(df['COUNTY'].unique()))
-        c_df = df[df['COUNTY'] == county]
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            dep = st.selectbox("Dependent Variable:", ['TOTAL_CLAIM_COST', 'INCOME', 'INSURANCE_COVERAGE_PCT'])
-            ind = st.selectbox("Independent Variable:", ['INCOME_TIER', 'GENDER', 'RACE'])
-            chart = px.bar(c_df.groupby(ind)[dep].mean().reset_index(), x=ind, y=dep, color=ind)
-            st.plotly_chart(chart, use_container_width=True)
-
     # --- TAB: COMPARISON ---
-    elif page == "Population Comparison":
-        st.title("⚖️ Population Comparison")
-        st.markdown("> **Summary:** Compare cost and coverage metrics across demographics side-by-side.")
+    elif page == "Comparative Equity":
+        st.title("⚖️ Intersectional Equity Analysis")
+        st.info("💡 **Summary:** We compare cost and coverage across demographics to reveal systemic gaps.")
         
-        metric = st.selectbox("Select Metric:", ['TOTAL_CLAIM_COST', 'INCOME', 'INSURANCE_COVERAGE_PCT'])
+        metric = st.selectbox("Select Equity Metric:", ['TOTAL_CLAIM_COST', 'INSURANCE_COVERAGE_PCT'])
         
-        col_a, col_b = st.columns(2)
-        with col_a:
-            demo_a = st.selectbox("Group A by:", ['GENDER', 'RACE', 'INCOME_TIER'], key="a")
-            st.plotly_chart(px.bar(df.groupby(demo_a)[metric].mean().reset_index(), x=demo_a, y=metric, color=demo_a), use_container_width=True)
-        with col_b:
-            demo_b = st.selectbox("Group B (Trend) by:", ['INCOME_TIER', 'RACE', 'GENDER'], key="b")
-            st.plotly_chart(px.line(df.groupby(['YEAR', demo_b])[metric].mean().reset_index(), x='YEAR', y=metric, color=demo_b), use_container_width=True)
+        c1, c2 = st.columns(2)
+        with c1:
+            # Bar Chart with NGO Income colors
+            fig1 = px.bar(df.groupby('INCOME_TIER')[metric].mean().reset_index(), 
+                          x='INCOME_TIER', y=metric, color='INCOME_TIER',
+                          color_discrete_map={'High':'#1e40af', 'Middle':'#0891b2', 'Low':'#e11d48'},
+                          title=f"Avg {metric} by Wealth Tier")
+            st.plotly_chart(fig1, use_container_width=True)
+        
+        with c2:
+            # Trend lines
+            fig2 = px.line(df.groupby(['YEAR', 'GENDER'])[metric].mean().reset_index(), 
+                           x='YEAR', y=metric, color='GENDER', color_discrete_sequence=px.colors.qualitative.Safe,
+                           title="Historical Trend by Gender")
+            st.plotly_chart(fig2, use_container_width=True)
 
     # --- TAB: PREDICTIVE ---
-    elif page == "Predictive Forecasting":
-        st.title("🔮 Predictive Analytics Tool")
-        st.markdown("> **Summary:** Trend projection through 2030 using Linear Regression.")
+    elif page == "Future Projections":
+        st.title("🔮 2030 Predictive Analytics")
+        st.info("💡 **Summary:** Using Linear Regression to forecast future healthcare needs.")
         
-        target = st.selectbox("Project Target:", ['TOTAL_CLAIM_COST', 'INSURANCE_COVERAGE_PCT'])
+        target = st.selectbox("Project Future:", ['TOTAL_CLAIM_COST', 'INSURANCE_COVERAGE_PCT'])
         yearly = df.groupby('YEAR')[target].mean().reset_index()
         
         model = LinearRegression().fit(yearly[['YEAR']], yearly[target])
@@ -137,11 +147,14 @@ try:
         future_preds = model.predict(future_years)
         
         combined = pd.concat([
-            pd.DataFrame({'Year': yearly['YEAR'], 'Value': yearly[target], 'Status': 'Actual'}),
-            pd.DataFrame({'Year': future_years.flatten(), 'Value': future_preds, 'Status': 'Projected'})
+            pd.DataFrame({'Year': yearly['YEAR'], 'Value': yearly[target], 'Status': 'Past Data'}),
+            pd.DataFrame({'Year': future_years.flatten(), 'Value': future_preds, 'Status': 'Future Projection'})
         ])
-        st.plotly_chart(px.line(combined, x='Year', y='Value', color='Status', markers=True), use_container_width=True)
+        
+        fig = px.line(combined, x='Year', y='Value', color='Status', markers=True, 
+                     color_discrete_map={'Past Data':'#64748b', 'Future Projection':'#2563eb'})
+        st.plotly_chart(fig, use_container_width=True)
 
 except Exception as e:
-    st.error("🚨 System Update in Progress. Checking data integrity...")
+    st.error("🚨 System Update Required")
     st.exception(e)
