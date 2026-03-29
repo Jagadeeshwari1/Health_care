@@ -22,13 +22,18 @@ def get_all_data():
     
     # Financial Cleaning
     for c in ['INCOME', 'HEALTHCARE_EXPENSES', 'HEALTHCARE_COVERAGE']:
-        p[c] = pd.to_numeric(p[c].astype(str).str.replace(r'[\$,]', '', regex=True), errors='coerce').fillna(0)
+        if c in p.columns:
+            p[c] = pd.to_numeric(p[c].astype(str).str.replace(r'[\$,]', '', regex=True), errors='coerce').fillna(0)
     
-    # Coverage % Calculation (Professor's Request)
+    # Professor's Request: Insurance Coverage %
     p['INSURANCE_COVERAGE_PCT'] = (p['HEALTHCARE_COVERAGE'] / (p['HEALTHCARE_EXPENSES'] + 1) * 100).clip(0, 100)
     
-    # Load and Merge Encounters
+    # Load and Merge Encounters (Handles multiple parts)
     encounter_files = list(data_dir.glob("encounters*.csv"))
+    if not encounter_files:
+        st.error("No encounter data found in /data folder.")
+        return pd.DataFrame()
+        
     e = pd.concat([pd.read_csv(f) for f in encounter_files], ignore_index=True)
     e['START'] = pd.to_datetime(e['START'])
     e['YEAR'] = e['START'].dt.year
@@ -39,112 +44,114 @@ def get_all_data():
 # --- 3. PAGE FUNCTIONS ---
 
 def show_intro():
-    st.title("🏥 Welcome to Health Equity OS")
+    st.title("🏥 Health Equity Insights Platform")
     st.markdown("""
-    ### Project Overview
-    This platform analyzes healthcare cost and access disparities. We focus on **Vertical Equity**—the principle that healthcare 
-    should be distributed based on need and socio-economic vulnerability.
-    
-    **Instructions:** Use the sidebar to navigate through the interactive map, demographic comparisons, and predictive tools.
+    ### Welcome
+    This platform identifies **Vertical Equity Gaps**—disparities in healthcare access and cost based on socio-economic status. 
+    We use intersectional data to help decision-makers allocate resources where they are needed most.
     """)
+    st.info("💡 **How to use:** Navigate using the sidebar to explore the California Map, Compare Demographic groups, or use the Predictive Tool to see future trends.")
 
 def show_map_page(df):
-    st.header("📍 Regional Health Equity Map")
-    st.info("💡 **Summary:** This map shows healthcare metrics across counties. Darker regions indicate higher costs or lower income. Hover over a county to see specific details.")
-    
-    # Aggregate data by County
-    county_map_data = df.groupby('COUNTY').agg({
+    st.header("📍 Interactive California Health Map")
+    st.markdown("> **Non-Technical Summary:** This map colors California counties based on healthcare costs. Darker colors represent higher financial burdens. Hover over any county to see average income and insurance coverage.")
+
+    # Aggregate by County
+    map_data = df.groupby('COUNTY').agg({
         'TOTAL_CLAIM_COST': 'mean',
         'INCOME': 'mean',
         'INSURANCE_COVERAGE_PCT': 'mean'
     }).reset_index()
 
-    # NOTE: To show a real map, we'd need a GeoJSON. Since we are presenting, 
-    # we'll use a high-quality bar chart as a proxy or Plotly's built-in map if coordinates exist.
-    fig = px.choropleth(county_map_data, 
-                        locations='COUNTY', 
-                        locationmode='USA-states', # or custom GeoJSON if available
-                        color='TOTAL_CLAIM_COST',
-                        hover_name='COUNTY',
-                        hover_data=['INCOME', 'INSURANCE_COVERAGE_PCT'],
-                        title="California County Healthcare Burden",
-                        scope="usa")
-    
-    # If GeoJSON isn't available, Plotly will show a list/table by default. 
-    # Let's provide the interactive county click-down.
-    selected_county = st.selectbox("Select a County for Detailed Analysis", options=county_map_data['COUNTY'].unique())
-    
+    # Create the Map (Choropleth)
+    fig = px.choropleth(
+        map_data,
+        locations='COUNTY',
+        locationmode='USA-states', # Note: For exact county borders, a GeoJSON is usually needed, but this provides the hover interactivity.
+        color='TOTAL_CLAIM_COST',
+        hover_name='COUNTY',
+        hover_data={'INCOME': ':,.2f', 'INSURANCE_COVERAGE_PCT': ':.1f%'},
+        color_continuous_scale="Viridis",
+        scope="usa",
+        title="Average Claims Cost by County"
+    )
+    # Focus map on California region roughly
+    fig.update_geos(fitbounds="locations", visible=False)
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Interactive Click-down (Professor's Request #1.2)
+    st.divider()
+    selected_county = st.selectbox("Detailed County View: Select a County to generate specific graphs", options=sorted(df['COUNTY'].unique()))
     county_df = df[df['COUNTY'] == selected_county]
     
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Avg Claims Cost", f"${county_df['TOTAL_CLAIM_COST'].mean():,.2f}")
-    col2.metric("Avg Income", f"${county_df['INCOME'].mean():,.2f}")
-    col3.metric("Insurance Coverage %", f"{county_df['INSURANCE_COVERAGE_PCT'].mean():.1f}%")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Avg Claims Cost", f"${county_df['TOTAL_CLAIM_COST'].mean():,.2f}")
+    c2.metric("Avg Income", f"${county_df['INCOME'].mean():,.2f}")
+    c3.metric("Insurance Coverage %", f"{county_df['INSURANCE_COVERAGE_PCT'].mean():.1f}%")
 
 def show_compare_page(df):
-    st.header("⚖️ Population Comparison")
-    st.info("💡 **Summary:** Compare how different groups (by race, gender, or income) experience healthcare costs side-by-side.")
+    st.header("⚖️ Population Comparison Tool")
+    st.markdown("> **Non-Technical Summary:** Use this page to compare two or more groups side-by-side. For example, you can see how much more 'Low Income' groups pay compared to 'High Income' groups.")
     
-    st.sidebar.subheader("Comparison Settings")
-    factor = st.sidebar.selectbox("Choose Demographic Factor", ['RACE', 'GENDER', 'INCOME_TIER'])
-    metric = st.sidebar.selectbox("Choose Metric to Compare", ['TOTAL_CLAIM_COST', 'INCOME', 'INSURANCE_COVERAGE_PCT'])
-
-    chart = alt.Chart(df).mark_bar().encode(
-        x=alt.X(f'{factor}:N', title=factor),
-        y=alt.Y(f'mean({metric}):Q', title=f"Average {metric}"),
-        color=f'{factor}:N',
-        tooltip=[factor, f'mean({metric})']
-    ).properties(height=450)
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        factor = st.selectbox("Compare By:", ['INCOME_TIER', 'GENDER', 'RACE'])
+        metric = st.selectbox("Metric:", ['TOTAL_CLAIM_COST', 'INCOME', 'INSURANCE_COVERAGE_PCT'])
     
-    st.altair_chart(chart, use_container_width=True)
+    with col2:
+        chart = alt.Chart(df).mark_bar().encode(
+            x=alt.X(factor, sort='-y'),
+            y=alt.Y(f'mean({metric}):Q', title=f"Average {metric}"),
+            color=alt.Color(factor, scale=alt.Scale(scheme='tableau10')),
+            tooltip=[factor, f'mean({metric})']
+        ).properties(height=450)
+        st.altair_chart(chart, use_container_width=True)
 
 def show_predictive_page(df):
-    st.header("🔮 Predictive Insights")
-    st.info("💡 **Summary:** This tool looks at historical data (past to present) and uses a trend line to project what costs and coverage might look like in the future.")
+    st.header("🔮 Future Trend Projections")
+    st.markdown("> **Non-Technical Summary:** This tool uses mathematical models to look at our data from the past to the present, then draws a line into the future to predict where costs are headed by 2030.")
     
-    dependent_var = st.selectbox("Select Variable to Project", ['TOTAL_CLAIM_COST', 'INCOME', 'INSURANCE_COVERAGE_PCT'])
+    dep_var = st.selectbox("Select Projection Variable:", ['TOTAL_CLAIM_COST', 'INCOME', 'INSURANCE_COVERAGE_PCT'])
     
-    # Prepare Time Series
-    yearly_data = df.groupby('YEAR')[dependent_var].mean().reset_index()
+    # Prepare Data
+    yearly = df.groupby('YEAR')[dep_var].mean().reset_index()
+    X = yearly[['YEAR']].values
+    y = yearly[dep_var].values
     
-    # Linear Regression for Projection
-    X = yearly_data[['YEAR']].values
-    y = yearly_data[dependent_var].values
+    # Train Model
     model = LinearRegression()
     model.fit(X, y)
     
-    # Create Future Dates
+    # Predict to 2030
     future_years = np.array([[2026], [2027], [2028], [2029], [2030]])
     future_preds = model.predict(future_years)
     
-    # Combine Data
-    future_df = pd.DataFrame({'YEAR': future_years.flatten(), dependent_var: future_preds, 'Type': 'Projected'})
-    yearly_data['Type'] = 'Actual'
-    combined = pd.concat([yearly_data, future_df])
+    # Combine for Charting
+    hist_df = pd.DataFrame({'Year': yearly['YEAR'], 'Value': y, 'Status': 'Past/Present'})
+    proj_df = pd.DataFrame({'Year': future_years.flatten(), 'Value': future_preds, 'Status': 'Future Projection'})
+    combined = pd.concat([hist_df, proj_df])
     
-    # Plot
     chart = alt.Chart(combined).mark_line(point=True).encode(
-        x='YEAR:O',
-        y=alt.Y(dependent_var, title=f"Average {dependent_var}"),
-        color='Type',
-        strokeDash='Type'
+        x=alt.X('Year:O'),
+        y=alt.Y('Value:Q', title=f"Estimated {dep_var}"),
+        color='Status',
+        strokeDash='Status'
     ).properties(height=500)
     
     st.altair_chart(chart, use_container_width=True)
-    st.write(f"**Projection Note:** Based on historical trends, we expect {dependent_var.replace('_', ' ').lower()} to reach **${future_preds[-1]:,.2f}** by 2030.")
+    st.success(f"By 2030, the model projects {dep_var.replace('_',' ')} will reach approximately **${future_preds[-1]:,.2f}**.")
 
 # --- 4. MAIN ROUTING ---
 try:
-    full_df = get_all_data()
-    st.sidebar.title("Navigation")
-    page = st.sidebar.radio("Go to:", ["Intro", "Interactive Map", "Compare Groups", "Predictive Tool"])
+    data = get_all_data()
+    if not data.empty:
+        page = st.sidebar.radio("Navigation", ["Intro", "Interactive Map", "Compare Groups", "Predictive Tool"])
 
-    if page == "Intro": show_intro()
-    elif page == "Interactive Map": show_map_page(full_df)
-    elif page == "Compare Groups": show_compare_page(full_df)
-    elif page == "Predictive Tool": show_predictive_page(full_df)
-
+        if page == "Intro": show_intro()
+        elif page == "Interactive Map": show_map_page(data)
+        elif page == "Compare Groups": show_compare_page(data)
+        elif page == "Predictive Tool": show_predictive_page(data)
 except Exception as e:
-    st.error("🚨 System Update Required")
+    st.error("System Error: Please ensure all data columns (GENDER, RACE, COUNTY) exist.")
     st.exception(e)
     
