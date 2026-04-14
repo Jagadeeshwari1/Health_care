@@ -3,9 +3,9 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 from pathlib import Path
-from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor
 
-# --- 1. PAGE CONFIG & NGO STYLING ---
+# --- 1. PAGE CONFIG & STYLING ---
 st.set_page_config(page_title="HEIP | NGO Health Equity OS", layout="wide", page_icon="🏥")
 
 st.markdown("""
@@ -42,6 +42,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
+# Fixed NGO Palette for Legend Consistency across all charts
 NGO_PALETTE = px.colors.qualitative.Safe 
 
 # --- 2. DATA ENGINE ---
@@ -65,7 +66,34 @@ def load_and_prep_data():
     
     return pd.merge(e, p, left_on='PATIENT', right_on='Id', how='inner')
 
-# --- 3. MAIN APP ---
+# --- 3. RANDOM FOREST GRID ENGINE ---
+def get_rf_grid_projections(df, row_factor, col_factor, target_metric):
+    rows = sorted(df[row_factor].unique())
+    cols = sorted(df[col_factor].unique())
+    all_projections = []
+
+    for r in rows:
+        for c in cols:
+            subset = df[(df[row_factor] == r) & (df[col_factor] == c)]
+            # Need at least 3 years to build a non-linear RF model
+            if len(subset['YEAR'].unique()) > 2:
+                yearly = subset.groupby('YEAR')[target_metric].mean().reset_index()
+                
+                rf = RandomForestRegressor(n_estimators=100, random_state=42)
+                X = yearly[['YEAR']].values
+                y = yearly[target_metric].values
+                rf.fit(X, y)
+                
+                future_years = np.array(range(yearly['YEAR'].max() + 1, 2031)).reshape(-1, 1)
+                preds = rf.predict(future_years)
+                
+                hist = yearly.assign(Status='Actual', Label=f"{r} | {c}")
+                proj = pd.DataFrame({'YEAR': future_years.flatten(), target_metric: preds, 'Status': 'Projected', 'Label': f"{r} | {c}"})
+                all_projections.append(pd.concat([hist, proj]))
+    
+    return pd.concat(all_projections) if all_projections else pd.DataFrame()
+
+# --- 4. MAIN APP ---
 try:
     raw_df = load_and_prep_data()
 
@@ -76,83 +104,38 @@ try:
     sel_income = st.sidebar.multiselect("Income Tier", options=['Low', 'Middle', 'High'], default=['Low', 'Middle', 'High'])
     
     df = raw_df[(raw_df['GENDER'].isin(sel_genders)) & (raw_df['RACE'].isin(sel_races)) & (raw_df['INCOME_TIER'].isin(sel_income))]
-    
-    # NAVIGATION (Fixed naming here)
-    page = st.sidebar.radio("Navigation", ["Overview", "Interactive Map", "Population Comparison", "Predictive Forecasting"])
+    page = st.sidebar.radio("Navigation", ["Overview", "Interactive Map", "Population Comparison", "Predictive Grid (Random Forest)"])
 
-    # --- PAGE 1: OVERVIEW (Fixed Logic) ---
     if page == "Overview":
         st.markdown('<div class="big-header">Health Equity Insights Platform</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-header">App Summary & Mission</div>', unsafe_allow_html=True)
+        st.markdown('<div class="mission-box">Identifying <strong>Vertical Equity Gaps</strong> via intersectional data and Random Forest predictive modeling.</div>', unsafe_allow_html=True)
         
-        st.markdown("""
-        <div class="mission-box">
-            <h3 style='color: #334155;'>HEIP Mission Statement</h3>
-            To dismantle <strong>Vertical Equity Gaps</strong> by providing transparent, intersectional data 
-            on healthcare costs. We empower NGOs to advocate for policy shifts that protect the most 
-            financially vulnerable cohorts in our society.
-        </div>
-        """, unsafe_allow_html=True)
-
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("🎯 Key Stakeholders")
-            st.write("* **NGO Strategists:** Regional advocacy.")
-            st.write("* **Public Health Officials:** Resource planning.")
-        with col2:
-            st.subheader("📊 Primary Finding")
-            st.info("💡 **Insight:** Under-insured populations currently face a cumulative clinical burden exceeding 35% of their annual household income.")
-
-        # FEEDBACK FORM
-        st.markdown('<div class="section-header">Contact NGO & Provide Feedback</div>', unsafe_allow_html=True)
         with st.form("ngo_feedback"):
-            st.write("Submit your insights or request a detailed regional report.")
+            st.write("Submit Feedback to NGO Analysts")
             f_name = st.text_input("Full Name")
             f_email = st.text_input("Organization Email")
-            f_msg = st.text_area("Observations or Feedback")
-            submitted = st.form_submit_button("Submit to NGO")
-            if submitted:
-                if f_name and f_email:
-                    st.success(f"Thank you, {f_name}! Your feedback has been logged.")
-                else:
-                    st.warning("Please provide your name and email.")
+            f_msg = st.text_area("Observations")
+            if st.form_submit_button("Submit"):
+                st.success("Thank you! Feedback Logged.")
 
- # --- PAGE 2: INTERACTIVE MAP ---
     elif page == "Interactive Map":
         st.markdown('<div class="big-header">California Regional Analysis</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-header">Expenditure Bubble Map</div>', unsafe_allow_html=True)
-        st.info("💡 **Summary:** Large bubbles represent counties with higher average healthcare costs. Hover to see Income and Coverage.")
+        st.info("💡 **Summary:** Large bubbles represent counties with higher average healthcare costs.")
         
         map_stats = df.groupby('COUNTY').agg({
-            'TOTAL_CLAIM_COST': 'mean', 
-            'INCOME': 'mean', 
-            'INSURANCE_COVERAGE_PCT': 'mean', 
-            'LAT': 'mean', 
-            'LON': 'mean'
+            'TOTAL_CLAIM_COST': 'mean', 'INCOME': 'mean', 'INSURANCE_COVERAGE_PCT': 'mean', 'LAT': 'mean', 'LON': 'mean'
         }).reset_index()
 
-        # Reliable Bubble Map (No external GeoJSON needed)
         fig_bub = px.scatter_mapbox(
-            map_stats, 
-            lat="LAT", lon="LON", 
-            color="TOTAL_CLAIM_COST", 
-            size="TOTAL_CLAIM_COST",
-            hover_name="COUNTY", 
-            # Customizing hover data to hide Lat/Lon and show requested metrics
-            hover_data={
-                'LAT': False, 
-                'LON': False, 
-                'TOTAL_CLAIM_COST': ':,.2f', 
-                'INCOME': ':,.0f', 
-                'INSURANCE_COVERAGE_PCT': ':.1f%'
-            },
-            color_continuous_scale="Teal", 
-            size_max=25, zoom=5, 
-            mapbox_style="carto-positron"
+            map_stats, lat="LAT", lon="LON", color="TOTAL_CLAIM_COST", 
+            size="TOTAL_CLAIM_COST", hover_name="COUNTY",
+            hover_data={'LAT': False, 'LON': False, 'TOTAL_CLAIM_COST': ':,.2f', 'INCOME': ':,.0f', 'INSURANCE_COVERAGE_PCT': ':.1f%'},
+            color_continuous_scale="Teal", size_max=25, zoom=5, mapbox_style="carto-positron"
         )
-        st.plotly_chart(fig_bub, use_container_width=True, key="bubble_map_final")
+        st.plotly_chart(fig_bub, use_container_width=True, key="bubble_map")
 
-        # DEEP-DIVE GRAPHS WITH CUSTOMIZABLE AXES
         st.markdown('<div class="section-header">Deep-Dive: County Statistics</div>', unsafe_allow_html=True)
         sel_county = st.selectbox("Select County:", sorted(df['COUNTY'].unique()))
         c_df = df[df['COUNTY'] == sel_county]
@@ -165,32 +148,43 @@ try:
         with c2:
             st.metric(f"Avg Claims: {sel_county}", f"${c_df['TOTAL_CLAIM_COST'].mean():,.2f}")
             st.metric(f"Avg Income: {sel_county}", f"${c_df['INCOME'].mean():,.2f}")
-            st.metric(f"Insurance Coverage", f"{c_df['INSURANCE_COVERAGE_PCT'].mean():.1f}%")
 
-    # --- PAGE 3: COMPARISON ---
     elif page == "Population Comparison":
         st.markdown('<div class="big-header">Intersectional Comparison</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-header">Demographic Equity Metrics</div>', unsafe_allow_html=True)
-        metric = st.selectbox("Metric:", ['TOTAL_CLAIM_COST', 'INSURANCE_COVERAGE_PCT'])
+        metric = st.selectbox("Select Metric:", ['TOTAL_CLAIM_COST', 'INSURANCE_COVERAGE_PCT'])
         c1, c2 = st.columns(2)
         with c1:
             demo_a = st.selectbox("Compare Group A by:", ['GENDER', 'RACE', 'INCOME_TIER'], key="a")
             st.plotly_chart(px.bar(df.groupby(demo_a)[metric].mean().reset_index(), x=demo_a, y=metric, color=demo_a, color_discrete_sequence=NGO_PALETTE), use_container_width=True, key="chart_a")
         with c2:
             demo_b = st.selectbox("Compare Group B by:", ['INCOME_TIER', 'RACE', 'GENDER'], key="b")
-            st.plotly_chart(px.line(df.groupby(['YEAR', demo_b])[metric].mean().reset_index(), x='YEAR', y=metric, color=demo_b, color_discrete_sequence=NGO_PALETTE), use_container_width=True, key="chart_b")
+            st.plotly_chart(px.bar(df.groupby(demo_b)[metric].mean().reset_index(), x=demo_b, y=metric, color=demo_b, color_discrete_sequence=NGO_PALETTE), use_container_width=True, key="chart_b")
 
-    # --- PAGE 4: PREDICTIVE ---
-    elif page == "Predictive Forecasting":
-        st.markdown('<div class="big-header">2030 Trend Forecasting</div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-header">Future Projections</div>', unsafe_allow_html=True)
-        target = st.selectbox("Project Target:", ['TOTAL_CLAIM_COST', 'INSURANCE_COVERAGE_PCT'])
-        yearly = df.groupby('YEAR')[target].mean().reset_index()
-        model = LinearRegression().fit(yearly[['YEAR']], yearly[target])
-        future = pd.DataFrame({'YEAR': range(2026, 2031)}); future[target] = model.predict(future[['YEAR']])
-        combined = pd.concat([yearly.assign(Status='Past'), future.assign(Status='Future')])
-        st.plotly_chart(px.line(combined, x='YEAR', y=target, color='Status', markers=True, color_discrete_map={'Past':'#94a3b8', 'Future':'#fb7185'}), use_container_width=True, key="pred_chart")
+    elif page == "Predictive Grid (Random Forest)":
+        st.markdown('<div class="big-header">Intersectional Forecast Grid</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header">Random Forest Predictive Grid</div>', unsafe_allow_html=True)
+        
+        c1, c2, c3 = st.columns(3)
+        with c1: row_f = st.selectbox("Vertical Axis (Rows):", ['RACE', 'GENDER', 'INCOME_TIER'], index=0)
+        with c2: col_f = st.selectbox("Horizontal Axis (Columns):", ['GENDER', 'RACE', 'INCOME_TIER'], index=1)
+        with c3: target = st.selectbox("Metric to Forecast:", ['TOTAL_CLAIM_COST', 'INSURANCE_COVERAGE_PCT', 'INCOME'])
+
+        grid_df = get_rf_grid_projections(raw_df, row_f, col_f, target)
+
+        if not grid_df.empty:
+            fig = px.line(
+                grid_df, x="YEAR", y=target, color="Status",
+                facet_row=row_f, facet_col=col_f,
+                title=f"2030 Projections: {target.replace('_', ' ')}",
+                color_discrete_map={'Actual': '#94a3b8', 'Projected': '#fb7185'},
+                markers=True
+            )
+            fig.update_layout(height=250 * len(raw_df[row_f].unique()), margin=dict(t=80))
+            st.plotly_chart(fig, use_container_width=True, key="grid_chart")
+        else:
+            st.warning("Insufficient data for Random Forest intersections.")
 
 except Exception as e:
-    st.error("🚨 System Update Required. Ensure data folder contains all CSV files.")
+    st.error("🚨 System Update Required")
     st.exception(e)
