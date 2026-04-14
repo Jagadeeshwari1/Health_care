@@ -5,7 +5,7 @@ import plotly.express as px
 from pathlib import Path
 from sklearn.ensemble import RandomForestRegressor
 
-# --- 1. PAGE CONFIG & STYLING ---
+# --- 1. PAGE CONFIG & NGO STYLING ---
 st.set_page_config(page_title="HEIP | NGO Health Equity OS", layout="wide", page_icon="🏥")
 
 st.markdown("""
@@ -42,7 +42,6 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# Fixed NGO Palette for Legend Consistency across all charts
 NGO_PALETTE = px.colors.qualitative.Safe 
 
 # --- 2. DATA ENGINE ---
@@ -66,7 +65,7 @@ def load_and_prep_data():
     
     return pd.merge(e, p, left_on='PATIENT', right_on='Id', how='inner')
 
-# --- 3. RANDOM FOREST GRID ENGINE ---
+# --- 3. RANDOM FOREST GRID ENGINE (FIXED) ---
 def get_rf_grid_projections(df, row_factor, col_factor, target_metric):
     rows = sorted(df[row_factor].unique())
     cols = sorted(df[col_factor].unique())
@@ -75,7 +74,6 @@ def get_rf_grid_projections(df, row_factor, col_factor, target_metric):
     for r in rows:
         for c in cols:
             subset = df[(df[row_factor] == r) & (df[col_factor] == c)]
-            # Need at least 3 years to build a non-linear RF model
             if len(subset['YEAR'].unique()) > 2:
                 yearly = subset.groupby('YEAR')[target_metric].mean().reset_index()
                 
@@ -87,8 +85,15 @@ def get_rf_grid_projections(df, row_factor, col_factor, target_metric):
                 future_years = np.array(range(yearly['YEAR'].max() + 1, 2031)).reshape(-1, 1)
                 preds = rf.predict(future_years)
                 
+                # We must add row_factor and col_factor back into the dataframe here
                 hist = yearly.assign(Status='Actual', Label=f"{r} | {c}")
+                hist[row_factor] = r
+                hist[col_factor] = c
+                
                 proj = pd.DataFrame({'YEAR': future_years.flatten(), target_metric: preds, 'Status': 'Projected', 'Label': f"{r} | {c}"})
+                proj[row_factor] = r
+                proj[col_factor] = c
+                
                 all_projections.append(pd.concat([hist, proj]))
     
     return pd.concat(all_projections) if all_projections else pd.DataFrame()
@@ -97,7 +102,6 @@ def get_rf_grid_projections(df, row_factor, col_factor, target_metric):
 try:
     raw_df = load_and_prep_data()
 
-    # --- GLOBAL SIDEBAR ---
     st.sidebar.markdown("## 📊 Strategic Filters")
     sel_genders = st.sidebar.multiselect("Gender", options=sorted(raw_df['GENDER'].unique()), default=raw_df['GENDER'].unique())
     sel_races = st.sidebar.multiselect("Race", options=sorted(raw_df['RACE'].unique()), default=raw_df['RACE'].unique())
@@ -110,7 +114,6 @@ try:
         st.markdown('<div class="big-header">Health Equity Insights Platform</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-header">App Summary & Mission</div>', unsafe_allow_html=True)
         st.markdown('<div class="mission-box">Identifying <strong>Vertical Equity Gaps</strong> via intersectional data and Random Forest predictive modeling.</div>', unsafe_allow_html=True)
-        
         with st.form("ngo_feedback"):
             st.write("Submit Feedback to NGO Analysts")
             f_name = st.text_input("Full Name")
@@ -122,12 +125,8 @@ try:
     elif page == "Interactive Map":
         st.markdown('<div class="big-header">California Regional Analysis</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-header">Expenditure Bubble Map</div>', unsafe_allow_html=True)
-        st.info("💡 **Summary:** Large bubbles represent counties with higher average healthcare costs.")
         
-        map_stats = df.groupby('COUNTY').agg({
-            'TOTAL_CLAIM_COST': 'mean', 'INCOME': 'mean', 'INSURANCE_COVERAGE_PCT': 'mean', 'LAT': 'mean', 'LON': 'mean'
-        }).reset_index()
-
+        map_stats = df.groupby('COUNTY').agg({'TOTAL_CLAIM_COST': 'mean', 'INCOME': 'mean', 'INSURANCE_COVERAGE_PCT': 'mean', 'LAT': 'mean', 'LON': 'mean'}).reset_index()
         fig_bub = px.scatter_mapbox(
             map_stats, lat="LAT", lon="LON", color="TOTAL_CLAIM_COST", 
             size="TOTAL_CLAIM_COST", hover_name="COUNTY",
@@ -136,29 +135,16 @@ try:
         )
         st.plotly_chart(fig_bub, use_container_width=True, key="bubble_map")
 
-        st.markdown('<div class="section-header">Deep-Dive: County Statistics</div>', unsafe_allow_html=True)
-        sel_county = st.selectbox("Select County:", sorted(df['COUNTY'].unique()))
-        c_df = df[df['COUNTY'] == sel_county]
-        
-        c1, c2 = st.columns(2)
-        with c1:
-            x_ax = st.selectbox("X-Axis (Demographic):", ['GENDER', 'RACE', 'INCOME_TIER'], key="x_map")
-            y_ax = st.selectbox("Y-Axis (Metric):", ['TOTAL_CLAIM_COST', 'INCOME', 'INSURANCE_COVERAGE_PCT'], key="y_map")
-            st.plotly_chart(px.bar(c_df.groupby(x_ax)[y_ax].mean().reset_index(), x=x_ax, y=y_ax, color=x_ax, color_discrete_sequence=NGO_PALETTE), use_container_width=True, key="c_bar")
-        with c2:
-            st.metric(f"Avg Claims: {sel_county}", f"${c_df['TOTAL_CLAIM_COST'].mean():,.2f}")
-            st.metric(f"Avg Income: {sel_county}", f"${c_df['INCOME'].mean():,.2f}")
-
     elif page == "Population Comparison":
         st.markdown('<div class="big-header">Intersectional Comparison</div>', unsafe_allow_html=True)
         st.markdown('<div class="section-header">Demographic Equity Metrics</div>', unsafe_allow_html=True)
         metric = st.selectbox("Select Metric:", ['TOTAL_CLAIM_COST', 'INSURANCE_COVERAGE_PCT'])
         c1, c2 = st.columns(2)
         with c1:
-            demo_a = st.selectbox("Compare Group A by:", ['GENDER', 'RACE', 'INCOME_TIER'], key="a")
+            demo_a = st.selectbox("Group A by:", ['GENDER', 'RACE', 'INCOME_TIER'], key="a")
             st.plotly_chart(px.bar(df.groupby(demo_a)[metric].mean().reset_index(), x=demo_a, y=metric, color=demo_a, color_discrete_sequence=NGO_PALETTE), use_container_width=True, key="chart_a")
         with c2:
-            demo_b = st.selectbox("Compare Group B by:", ['INCOME_TIER', 'RACE', 'GENDER'], key="b")
+            demo_b = st.selectbox("Group B by:", ['INCOME_TIER', 'RACE', 'GENDER'], key="b")
             st.plotly_chart(px.bar(df.groupby(demo_b)[metric].mean().reset_index(), x=demo_b, y=metric, color=demo_b, color_discrete_sequence=NGO_PALETTE), use_container_width=True, key="chart_b")
 
     elif page == "Predictive Grid (Random Forest)":
